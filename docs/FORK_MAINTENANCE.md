@@ -24,3 +24,7 @@ GitHub 写前确认 owner/repo，写后回读。所有 gh 显式 GH_PROMPT_DISAB
 
 ## 本机认证
 origin fetch 为 fork HTTPS，push 为 `git@github.com:Alex-ghost599/dashi-taskboard.git`。已有 SSH 认证已核实同账号，因 OAuth 缺 workflow scope 采用该路径；不扩权限。upstream push URL 仍 DISABLED。
+
+## 个人补丁与已接受行为（2026-09-07）
+- Issue #5：CDP 目标只认可信 app 主页面；凭证写入前校验，导航撤权，通知同窗口/同源，打包携带信任策略模块。后续上游合入需保留此边界及负向测试，禁止恢复标题回退。
+- 用户确认保留自动 AI 项目总结和 Markdown/头像外链加载；它们是已接受的数据处理/网络行为，不按恶意后门判定，也不因安全审计擅自关闭。自动认领和上游程序替换更新仍关闭。

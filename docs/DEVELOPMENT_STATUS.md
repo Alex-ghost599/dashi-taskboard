@@ -37,3 +37,11 @@
 没有上游云部署、远端发布或 updater 链验收；GitHub 基础 PR 未产生 Check runs，不能声称 CI 通过。最终远端 Check 状态另行记录，Mac 本地构建/UI 是本次主要验收。上游未用 launcher 代码产生 dead-code warnings；网页大 chunk 提示仍保留。不把新会话/侧边栏注入、Windows/Linux 运行、签名公证或付费模型认领视为已完成。启动握手无超时、App 被强杀的孤儿恢复仍依赖文档人工诊断，后续出现实际问题再处理。
 
 最终独立 foundation_review（00e39c8 文档 / e4270aa 安装）：Pass，无 Critical/Important；实时检查签名、provenance、唯一 loopback、自有进程与原 Codex 保留，并查看真实截图。合并后仍必须重建最终 commit，不能以该 review 提前证明来源一致。完整 AX 补充为 codex-browser-full.ax.txt/native-current-full.ax.txt；增量 AX 需配截图，不单独作为完整UI证据。
+
+## CDP 信任边界修复（2026-09-07，Issue #5）
+- 用户保留项目概览自动 AI 总结：调用其配置的 Codex 模型是所需行为，自动认领仍关闭；保留正常 Markdown 外链图片/头像加载，接受其访问记录特性。安全审计不是“绝无后门”证明（47/244 核心文件完整覆盖）。
+- `fix--cdp-target-trust` 移除标题 Codex 的目标回退，只接受 `app://-` 主页面；排除辅助窗口。新文档脚本、隔离桥接和后续 RPC 在写入凭证/参数前用原生 Location 再次验证页面；导航/上下文销毁撤销旧权限，失信主页面恢复 CSP 并断连。通知通道也验证同窗口/同源，复用已有随机凭证及 HMAC，不新增账号或认证服务。
+- 修复前 injector 测试 12/12；修复后目标/桥接/CDP pipe/supervisor 定向测试 24/24。覆盖外部同标题页面、子 frame、实际执行来源与发现结果不一致、安装期间导航、旧上下文撤销及可信页面恢复。真实 Codex UI 与日常实例注入仍未验收，不能以模拟 CDP/VM 测试替代。
+- 当前正式 App 仍为 `94e30bc64b13eb89e0f339d427e2b967aed6e0d9`，本轮不替换安装版，不晋级 main；修复需独立 review 与 fork PR CI 后合入 develop。现有未跟踪 `* 2.*` 副本未改动；原目录全量测试因迁移工具读取未知副本重复添加列而 27 fail；只含跟踪源码与本轮文件的临时快照复验 379 pass / 1 skipped / 0 fail（随后新增两个清理测试，包含在定向 24/24 中）。副本未删除，不作为上游失败或本轮代码回归。
+
+- 独立 reviewer `cdp_trust_review` 初审发现页面全局 URL 可伪造、在途 RPC 导航泄露两项 Important，均修复并增量复审通过（源码/模拟层）；实际 Electron 消息来源兼容性和 UI 仍需隔离验收。

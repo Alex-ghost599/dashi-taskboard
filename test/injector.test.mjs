@@ -3,6 +3,7 @@ import { EventEmitter, once } from "node:events";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import vm from "node:vm";
+import { isCodexTarget } from "../scripts/codex-target-trust.mjs";
 
 const source = await readFile(new URL("../scripts/codex-injector.mjs", import.meta.url), "utf8");
 const runtimeSource = await readFile(
@@ -333,7 +334,9 @@ test("attach reconciles the renderer against a hashed current injection source",
 });
 
 test("the injector ignores auxiliary Codex windows", () => {
-  assert.match(source, /!target\.url\?\.includes\("initialRoute=%2Fglobal-dictation"\)/);
+  for (const route of ["/global-dictation", "/avatar-overlay"]) {
+    assert.equal(isCodexTarget({ type: "page", url: `app://-/index.html?initialRoute=${encodeURIComponent(route)}`, title: "Codex" }), false);
+  }
 });
 
 test("a completed web build refreshes an already-open Codex iframe", () => {
