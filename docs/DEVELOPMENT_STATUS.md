@@ -1,5 +1,17 @@
 # 开发与部署状态
 
+## 当前日常 CDP 验收（2026-09-07，AGT-20260907-014）
+
+用户最新空闲确认覆盖旧交接的全量官方运行态查询门槛。本轮独立 CLI 已优雅退出准确日常 PID，并用相同官方程序、默认日常 profile/home 和仅 loopback 的 9229 重启；未修改官方包或内部数据库。
+
+安装版注入器真实显示 Taskboard 侧栏、202-1 的 In review 状态和两条既有评论；刷新后读回一致。点击 View conversation 返回该卡绑定的原有项目会话，没有发送任务执行请求。项目概览自动 AI 总结按用户要求保留，不能把这项行为描述为无模型调用；正常外链图片也保留。自动认领单独保持关闭。
+
+日常入口 `python3 scripts/personal-cdp-open.py` 支持默认日常 home：无 Codex 时启动，已有无 CDP Codex 时拒绝并提示空闲退出，已有正确 CDP/注入器时复用。拒绝隔离 profile、自定义 home、未知启动参数、非 loopback 和其他监听者；不终止现有进程，不设置自启。
+
+独立 reviewer 对入口发现的 home 丢失和隔离实例误接两项 Important 已修复并复审通过；七个无副作用场景测试通过，Check 中持续执行。最终发布、安装 commit、进程和备份以本机 `.local-evidence/cdp-handoff-retry-20260907/MANIFEST.json` 与 `OUTCOME.json`、安装 receipt 和 App build-provenance 交叉核对，不在文档内写入自身 commit。
+
+远端 host IPC、真实任务自动认领、Windows/Linux 实机和签名公证仍未验收。以下为之前阶段记录，其中旧的“尚未部署日常”等描述仅代表当时状态。
+
 2026-09-07，首次 Mac 个人源码安装验收已执行；最终 PR/发布晋级及重建结果以安装 provenance 与本地验收清单读回为准。
 
 ## 源码与工作项

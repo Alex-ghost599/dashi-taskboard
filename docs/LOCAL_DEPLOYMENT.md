@@ -1,5 +1,23 @@
 # 个人版本地部署与恢复
 
+## 当前日常入口与恢复（2026-09-07）
+
+在当前已提交个人 fork checkout 运行：
+
+```sh
+python3 scripts/personal-cdp-open.py
+```
+
+入口检查已安装个人 App，只支持默认 `~/.codex` 和默认 Electron 日常 profile。已有 9229 必须为同一个官方 Codex 进程家族、仅 127.0.0.1，启动参数限定 `--remote-debugging-address=127.0.0.1 --remote-debugging-port=9229`；自定义 home、隔离 profile 或其他未知参数会明确拒绝。无 Codex 时通过官方 App 正常启动并追加这两个参数；已有无 CDP Codex 时提示保存工作、确认空闲退出后重试，不自动结束实例。
+
+个人 App 仍提供唯一 47823 服务/数据库。入口保持终端中的安装版 Node + personal-cdp.mjs 运行；Ctrl-C 只撤销该注入。再次运行时若已核实注入器 PID/完整命令，则提示复用并返回。注入器原有身份和 HMAC 验证保留，不进入 managed 模式。没有新增 PATH、shell、Skill、开机自启或用户隐私授权。
+
+本轮后台注入器 PID 与私有日志位置记在 `.local-evidence/cdp-handoff-retry-20260907/MANIFEST.json`。停止后台注入器前核对 PID/启动时间/完整命令，只向该 wrapper 发 SIGTERM，等待锁和入口撤销。普通启动恢复：在确认空闲后退出官方 Codex，再正常 `open /Applications/ChatGPT.app`，不改官方包/profile/数据库。启动入口失败不会强杀已有实例，需按明确错误检查后普通启动。
+
+2026-09-07 的受控日常重启已获用户单独授权；原 PID/参数/home 记录在该证据目录 `daily-before.json`。这次授权不表示今后可自动重启忙碌实例。切换 App 前先停止本次注入器、退出个人 App，使用既有安装器保留 App/数据快照，然后重新运行入口；保持正式数据原路径。
+
+最终安装 provenance、签名、备份恢复、日常嵌入 UI/CLI/会话定位结果从同目录 MANIFEST/OUTCOME 和安装收据读回。远端 host IPC 未覆盖。以下内容保留为阶段历史；“未来 CDP”“尚未日常部署”等为旧时点描述，以本节和最新收据为准。
+
 ## 适用范围与源码
 仅本机 macOS arm64。源码 checkout 使用个人 fork；首次产品基线为 v1.1.21 / 1a807be8d4114b82f3cecc61cddaebdba6df9c60，加个人桌面/安装补丁，不能简称“未修改稳定版”。正式安装的精确 commit 从 App 的 `Contents/Resources/build-provenance.json` 读取；构建脚本写入 commit、dirty、工具链和时间。安装器拒绝 dirty 或与 HEAD 不同的构建。
 
