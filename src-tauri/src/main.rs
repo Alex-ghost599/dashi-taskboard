@@ -2366,6 +2366,13 @@ async fn offer_update(
     }
 }
 
+#[cfg(feature = "personal")]
+mod personal;
+
+#[cfg(feature = "personal")]
+fn main() { personal::run(); }
+
+#[cfg(not(feature = "personal"))]
 fn main() {
     #[cfg(target_os = "macos")]
     let macos_bundle_migration = match migrate_macos_beta_app_bundle_name() {

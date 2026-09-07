@@ -11,3 +11,6 @@
 Codex 为后续可选 native browser 集成；独立看板先验收。禁止重启现有 Codex 或写官方包/数据库。共享 Skill 不自动覆盖。停止仅限本任务拥有进程；卸载保留数据库与历史备份。
 
 待补：实际 App、数据、日志、备份绝对路径及启动/停止/恢复/卸载命令；构建清单与真实 UI 证据。
+
+## 个人桌面实现（待验收）
+构建入口 `sh scripts/personal-build.sh`，使用已有 Rust 1.95、arm64 目标；可执行内嵌 provenance。默认 personal feature 不注册上游 updater、autostart 或 Skill 安装。固定数据 `~/Library/Application Support/Dashi Taskboard Personal`、日志 `~/Library/Logs/Dashi Taskboard Personal/server.log`、端口 127.0.0.1:47823；端口占用则拒绝第二个实例，不接管既有服务。App 退出仅 SIGTERM 自有 Node。CLI 使用 scripts/personal-taskctl。

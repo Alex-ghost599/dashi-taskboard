@@ -5,6 +5,10 @@ description = "Codex Taskboard launcher"
 edition = "2021"
 rust-version = "1.88"
 
+[features]
+default = ["personal"]
+personal = []
+
 [build-dependencies]
 tauri-build = { version = "2.6.0", features = [] }
 
