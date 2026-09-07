@@ -1,0 +1,6 @@
+{
+  "productName": "Dashi Taskboard Personal",
+  "identifier": "com.alexghost599.dashi-taskboard-personal",
+  "bundle": {"createUpdaterArtifacts": false},
+  "plugins": {"updater": {"endpoints": []}}
+}
