@@ -134,6 +134,7 @@ function parseArgs(argv) {
     refresh: false,
     refreshIfRunning: false,
     attachExisting: false,
+    externalService: false,
     startupToken: null,
     daemon: false,
     screenshot: null,
@@ -148,6 +149,7 @@ function parseArgs(argv) {
     else if (arg === "--open") options.open = true;
     else if (arg === "--refresh") options.refresh = true;
     else if (arg === "--refresh-if-running") options.refreshIfRunning = true;
+    else if (arg === "--external-service") options.externalService = true;
     else if (arg === "--attach-existing") options.attachExisting = true;
     else if (arg === "--startup-token") {
       options.startupToken = argv[++index];
@@ -165,6 +167,9 @@ function parseArgs(argv) {
     else throw new Error(`Unknown option: ${arg}`);
   }
 
+  if (options.externalService && (!options.watch || !options.attachExisting || options.launch || options.daemon || options.cdpPipe || options.refresh || options.refreshIfRunning)) {
+    throw new Error("--external-service requires --watch --attach-existing and forbids lifecycle modes");
+  }
   if (process.platform === "linux" && options.launch) options.cdpPipe = true;
 
   if (!Number.isInteger(options.port) || options.port < 1 || options.port > 65535) {
@@ -2298,6 +2303,7 @@ function installTaskboardHostBinding(
   let activeContextId = null;
   let installInFlight = null;
   let navigationGeneration = 0;
+  let disposed = false;
   const revokeContext = () => {
     activeContextId = null;
     navigationGeneration += 1;
@@ -2394,6 +2400,7 @@ function installTaskboardHostBinding(
   });
 
   async function install() {
+    if (disposed) throw new Error("Taskboard host bridge is disposed");
     if (installInFlight) return installInFlight;
     installInFlight = (async () => {
       activeContextId = null;
@@ -2419,7 +2426,8 @@ function installTaskboardHostBinding(
           if (globalThis.__codexTaskboardIsolatedBridgeV1 === capability) return true;
           globalThis.__codexTaskboardIsolatedBridgeV1 = capability;
           window.addEventListener("message", (event) => {
-            if (event.source !== window || event.origin !== window.location.origin) return;
+            if (globalThis.__codexTaskboardIsolatedBridgeV1 !== capability
+              || event.source !== window || event.origin !== window.location.origin) return;
             const message = event.data;
             if (
               !message
@@ -2449,7 +2457,7 @@ function installTaskboardHostBinding(
         `),
         returnByValue: true,
       });
-      if (installed.result?.value !== true || generation !== navigationGeneration) {
+      if (disposed || installed.result?.value !== true || generation !== navigationGeneration) {
         throw new Error("Codex document changed during host bridge installation");
       }
       activeContextId = candidateContextId;
@@ -2493,7 +2501,7 @@ function installTaskboardHostBinding(
     }
   }
 
-  return { install, publishHeartbeat };
+  return { install, publishHeartbeat, dispose: () => { disposed = true; revokeContext(); } };
 }
 
 async function readInjectionStatus(cdp) {
@@ -2557,6 +2565,30 @@ async function registerInjectionSource(cdp, source) {
   return registration.identifier;
 }
 
+async function detachTaskboardInjection(connection) {
+  connection.hostBridge?.dispose();
+  try {
+    if (connection.taskboardScriptIdentifier) await connection.send("Page.removeScriptToEvaluateOnNewDocument", { identifier: connection.taskboardScriptIdentifier });
+  } catch (error) { console.error(`Taskboard registration detach: ${error.message}`); }
+  try {
+    await connection.send("Runtime.evaluate", {
+      expression: guardCodexSource(`
+        if (window.__CODEX_TASKBOARD_HOST_CAPABILITY__ !== ${JSON.stringify(hostCapability)}) return;
+        window.__codexTaskboardInjection__?.destroy();
+        delete window.__CODEX_TASKBOARD_HOST_CAPABILITY__;
+        delete window.__CODEX_TASKBOARD_URL__;
+        delete window.__CODEX_TASKBOARD_MANAGED_ORIGIN__;
+      `),
+    });
+  } catch (error) { console.error(`Taskboard detach: ${error.message}`); }
+  finally {
+    if (connection.taskboardCspBypassed) {
+      try { await connection.send("Page.setBypassCSP", { enabled: false }); }
+      catch (error) { console.error(`Taskboard CSP restore: ${error.message}`); }
+    }
+  }
+}
+
 async function injectTarget(
   runtime,
   target,
@@ -2598,6 +2630,7 @@ async function injectTarget(
       }
     });
     await cdp.send("Page.setBypassCSP", { enabled: true });
+    cdp.taskboardCspBypassed = true;
     await cdp.send("Runtime.enable");
     if (keepAlive) await hostBridge.install();
     if (keepAlive && attachExisting) {
@@ -2618,6 +2651,7 @@ async function injectTarget(
           returnByValue: true,
         }),
       });
+      cdp.taskboardScriptIdentifier = reconciled.scriptIdentifier;
       cdp.on("Page.loadEventFired", async () => {
         await hostBridge.install();
         await publishInjectionScriptIdentifier(cdp, reconciled.scriptIdentifier);
@@ -2650,6 +2684,7 @@ async function injectTarget(
       };
     }
     const scriptIdentifier = await registerInjectionSource(cdp, source);
+    cdp.taskboardScriptIdentifier = scriptIdentifier;
     cdp.on("Page.loadEventFired", async () => {
       if (keepAlive) await hostBridge.install();
       await publishInjectionScriptIdentifier(cdp, scriptIdentifier);
@@ -2690,6 +2725,7 @@ async function injectTarget(
     return { result, connection: retained ? cdp : null };
   } finally {
     if (!retained) {
+      if (keepAlive) await detachTaskboardInjection(cdp);
       onCodexAppServerUnavailable(cdp);
       unregisterQuotaPolicyCdp(cdp);
       cdp.close();
@@ -2996,6 +3032,7 @@ async function main() {
     isReachable: isTaskboardReachable,
     waitUntilReachable: waitUntilTaskboardReachable,
     start: () => {
+      if (options.externalService) throw new Error("Start Dashi Taskboard Personal first; external injector never starts a service");
       const child = startTaskboard({
         detached,
         onCodexAppServerRequest: handleCodexAppServerRequest,
@@ -3015,6 +3052,7 @@ async function main() {
   });
 
   const publishRuntime = async () => {
+    if (options.externalService) return;
     const pending = publishTaskboardRuntime();
     runtimePublishPromise = pending;
     try {
@@ -3025,6 +3063,7 @@ async function main() {
   };
 
   const startManagedCodex = async () => {
+    if (options.externalService) throw new Error("External injector never launches Codex");
     if (stopping) return false;
     if (!options.cdpPipe) {
       const runningCodex = codexAppProcesses(options.appPath);
@@ -3100,6 +3139,7 @@ async function main() {
   };
 
   const recoverManagedCodexAfterUpdate = async () => {
+    if (options.externalService) return false;
     if (!exitedManagedCodex) return false;
     const updateReplacement = codexUpdateReplacementProcess(
       options.appPath,
@@ -3146,6 +3186,9 @@ async function main() {
   const cleanup = () => {
     if (cleanupPromise) return cleanupPromise;
     cleanupPromise = (async () => {
+      if (options.externalService) {
+        await Promise.all([...injectedTargets.values()].map(detachTaskboardInjection));
+      }
       injectedTargets.forEach((connection) => {
         unregisterRoutableCodexConnection(connection);
         unregisterQuotaPolicyCdp(connection);
@@ -3162,7 +3205,7 @@ async function main() {
             await pendingRuntimePublish;
           } catch (_) {}
         }
-        await removeTaskboardRuntime();
+        if (!options.externalService) await removeTaskboardRuntime();
       })();
       supervisorCleanupPromise.catch(() => {});
       runtimeCleanupPromise.catch(() => {});
@@ -3173,6 +3216,10 @@ async function main() {
         } catch (_) {}
         cdpRuntime?.close();
         cdpRuntime = null;
+      }
+      if (options.externalService) {
+        await Promise.all([supervisorCleanupPromise, runtimeCleanupPromise]);
+        return;
       }
       const launchedCodex = codexProcess;
       let launchedManagedCodex = managedCodex;
@@ -3428,6 +3475,10 @@ async function main() {
           ) {
             throw error;
           }
+        }
+        if (options.externalService) {
+          console.error(`Waiting for external Codex renderer: ${error.message}`);
+          continue;
         }
         const launchedCodexExited = options.cdpPipe
           ? codexProcess

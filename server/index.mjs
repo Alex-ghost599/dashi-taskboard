@@ -6,7 +6,17 @@ import { createTaskboardServer, resolveHost, resolvePort } from "./app.mjs";
 export { createTaskboardServer, resolveHost, resolvePort, resolveServerOptions } from "./app.mjs";
 
 async function main() {
-  const app = createTaskboardServer();
+  const personal = process.env.CODEX_TASKBOARD_PERSONAL_MODE === "1";
+  if (personal) {
+    if (!process.env.CODEX_TASKBOARD_DATA_DIR || resolveHost() !== "127.0.0.1") {
+      throw new Error("Personal service requires an explicit data directory and loopback host");
+    }
+    const { personalServiceCredentials } = await import("../shared/personal-service.mjs");
+    const credentials = await personalServiceCredentials(process.env.CODEX_TASKBOARD_DATA_DIR, { create: true });
+    process.env.CODEX_TASKBOARD_INSTANCE_TOKEN = credentials.token;
+    process.env.CODEX_TASKBOARD_INSTANCE_SECRET = credentials.secret;
+  }
+  const app = createTaskboardServer({ personalRootRedirect: personal });
   const host = resolveHost();
   const listenFd = process.env.CODEX_TASKBOARD_LISTEN_FD === undefined
     ? null

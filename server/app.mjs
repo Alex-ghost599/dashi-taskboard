@@ -1709,6 +1709,7 @@ export function resolveServerOptions(options = {}) {
       ?? path.join(codexHome, "process_manager", "chat_processes.json"),
     instanceToken,
     instanceSecret,
+    personalRootRedirect: options.personalRootRedirect === true,
     trustedOrigins: parseTrustedOrigins(environment[TRUSTED_ORIGINS_ENV]),
     version: String(
       options.version ?? environment.CODEX_TASKBOARD_VERSION ?? "development",
@@ -2085,6 +2086,18 @@ export function createTaskboardServer(options = {}) {
     response.setHeader("referrer-policy", "no-referrer");
     try {
       const incomingUrl = new URL(request.url, "http://127.0.0.1");
+      if (resolved.personalRootRedirect && resolved.instanceToken && incomingUrl.pathname === "/" && request.method === "GET") {
+        assertLoopbackRequest(request);
+        const host = parseRequestHost(request.headers.host).hostname;
+        const origin = request.headers.origin;
+        if (!["127.0.0.1", "localhost", "[::1]"].includes(host)
+          || (origin && !/^https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$/.test(origin))) {
+          throw new ApiError(403, "INVALID_ORIGIN", "Personal entry requires a loopback origin");
+        }
+        response.writeHead(302, { location: `${routePrefix}/${incomingUrl.search}`, "cache-control": "no-store" });
+        response.end();
+        return;
+      }
       if (resolved.instanceToken && incomingUrl.pathname !== "/health") {
         if (incomingUrl.pathname === routePrefix) {
           response.writeHead(301, { location: `${incomingUrl.pathname}/${incomingUrl.search}` });

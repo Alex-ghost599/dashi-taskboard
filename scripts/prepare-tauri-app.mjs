@@ -252,6 +252,8 @@ async function copyApplicationResources() {
     "codex-injector.mjs",
     "codex-injector-runtime.mjs",
     "codex-target-trust.mjs",
+    "personal-taskctl.mjs",
+    "personal-cdp.mjs",
     "codex-rate-limits.mjs",
     "taskboard-supervisor.mjs",
   ]) {

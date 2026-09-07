@@ -53,6 +53,7 @@ pub fn run() {
             command.arg(root.join("server/index.mjs"))
                 .current_dir(&root)
                 .env("CODEX_TASKBOARD_DATA_DIR", &data)
+                .env("CODEX_TASKBOARD_PERSONAL_MODE", "1")
                 .env("CODEX_TASKBOARD_HOST", "127.0.0.1")
                 .env("CODEX_TASKBOARD_PORT", "47823")
                 .env("CODEX_TASKBOARD_LISTEN_FD", "3")
