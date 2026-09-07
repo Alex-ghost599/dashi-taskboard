@@ -16,13 +16,28 @@ const listeners = spawnSync("/usr/sbin/lsof", ["-nP", `-iTCP:${args[1]}`, "-sTCP
 const fields = listeners.stdout?.trim().split("\n") ?? [];
 const addresses = fields.filter((line) => line.startsWith("n")).map((line) => line.slice(1));
 const pids = [...new Set(fields.filter((line) => /^p\d+$/.test(line)).map((line) => line.slice(1)))];
-if (listeners.status !== 0 || pids.length !== 1 || addresses.length === 0
+if (listeners.status !== 0 || pids.length === 0 || addresses.length === 0
   || addresses.some((address) => address !== `127.0.0.1:${args[1]}` && address !== `[::1]:${args[1]}`)) {
-  throw new Error("CDP must have one verified owner and listen only on loopback");
+  throw new Error("CDP must have verified owners and listen only on loopback");
 }
-const owner = spawnSync("/bin/ps", ["-p", pids[0], "-o", "comm="], { encoding: "utf8" });
-if (owner.status !== 0 || owner.stdout.trim() !== "/Applications/ChatGPT.app/Contents/MacOS/ChatGPT") {
-  throw new Error("CDP listener does not belong to the expected official Codex executable");
+const processes = new Map();
+const table = spawnSync("/bin/ps", ["-axo", "pid=,ppid=,comm="], { encoding: "utf8" });
+for (const line of table.stdout?.split("\n") ?? []) {
+  const match = line.trim().match(/^(\d+)\s+(\d+)\s+(.+)$/);
+  if (match) processes.set(match[1], { parent: match[2], executable: match[3] });
+}
+const codexOwners = pids.filter((pid) => processes.get(pid)?.executable === "/Applications/ChatGPT.app/Contents/MacOS/ChatGPT");
+const belongsToCodex = (pid) => {
+  const visited = new Set();
+  while (pid && !visited.has(pid)) {
+    if (pid === codexOwners[0]) return true;
+    visited.add(pid);
+    pid = processes.get(pid)?.parent;
+  }
+  return false;
+};
+if (table.status !== 0 || codexOwners.length !== 1 || !pids.every(belongsToCodex)) {
+  throw new Error("CDP listeners do not belong to one official Codex process family");
 }
 const data = path.join(os.homedir(), "Library/Application Support/Dashi Taskboard Personal");
 const credentials = await personalServiceCredentials(data);
