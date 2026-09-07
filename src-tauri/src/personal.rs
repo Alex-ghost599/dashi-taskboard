@@ -15,7 +15,18 @@ impl Server {
         if let Some(mut child) = self.0.lock().unwrap().take() {
             // Signal only the exact child spawned by this App, then reap it.
             unsafe { libc::kill(child.id() as i32, libc::SIGTERM); }
-            let _ = child.wait();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            loop {
+                match child.try_wait() {
+                    Ok(Some(_)) => break,
+                    _ if std::time::Instant::now() >= deadline => {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        break;
+                    }
+                    _ => std::thread::sleep(std::time::Duration::from_millis(50)),
+                }
+            }
         }
     }
 }
