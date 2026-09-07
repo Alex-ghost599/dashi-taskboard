@@ -6,7 +6,7 @@
 - fork：Alex-ghost599/dashi-taskboard；初始 main 677b54451db707ae6132486b6593b7be11e4ee09。
 - 稳定产品基线：v1.1.21 / 1a807be8d4114b82f3cecc61cddaebdba6df9c60。同期最新 Beta/main：v1.1.22-beta.6 / bd264e7ff3402785f1e8b0bb789106358352707b，没有纳入该 Beta。
 - 基础 Issue #1、PR #2，squash a99cf4cc64649e2aae376ae06a65ce43f9540f05；foundation_review 独立审核 Pass。
-- 安装 Issue #3、chore--personal-desktop；最终合并状态从 fork PR 读取。PR base 仅 develop，main 只在验收后 fast-forward，保留所有任务分支。
+- 安装 Issue #3、PR #4、chore--personal-desktop；最终合并状态从 fork PR 读取。PR base 仅 develop，main 只在验收后 fast-forward，保留所有任务分支。
 
 ## 实际验收
 | 检查 | 结果/范围 |
@@ -35,3 +35,5 @@
 
 ## 保留限制
 没有上游云部署、远端发布或 updater 链验收；GitHub 基础 PR 未产生 Check runs，不能声称 CI 通过。最终远端 Check 状态另行记录，Mac 本地构建/UI 是本次主要验收。上游未用 launcher 代码产生 dead-code warnings；网页大 chunk 提示仍保留。不把新会话/侧边栏注入、Windows/Linux 运行、签名公证或付费模型认领视为已完成。启动握手无超时、App 被强杀的孤儿恢复仍依赖文档人工诊断，后续出现实际问题再处理。
+
+最终独立 foundation_review（00e39c8 文档 / e4270aa 安装）：Pass，无 Critical/Important；实时检查签名、provenance、唯一 loopback、自有进程与原 Codex 保留，并查看真实截图。合并后仍必须重建最终 commit，不能以该 review 提前证明来源一致。完整 AX 补充为 codex-browser-full.ax.txt/native-current-full.ax.txt；增量 AX 需配截图，不单独作为完整UI证据。
