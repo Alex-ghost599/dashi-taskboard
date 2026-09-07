@@ -2,6 +2,7 @@
 set -eu
 cd "$(dirname "$0")/.."
 export RUSTUP_TOOLCHAIN=1.95
+export CARGO_HTTP_MULTIPLEXING=false
 npm run build:web
 node scripts/prepare-tauri-app.mjs --target aarch64-apple-darwin
 # Use the same endpoint as the desktop, without installing a global executable.
