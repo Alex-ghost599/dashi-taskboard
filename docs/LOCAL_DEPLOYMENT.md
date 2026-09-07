@@ -14,3 +14,5 @@ Codex 为后续可选 native browser 集成；独立看板先验收。禁止重�
 
 ## 个人桌面实现（待验收）
 构建入口 `sh scripts/personal-build.sh`，使用已有 Rust 1.95、arm64 目标；可执行内嵌 provenance。默认 personal feature 不注册上游 updater、autostart 或 Skill 安装。固定数据 `~/Library/Application Support/Dashi Taskboard Personal`、日志 `~/Library/Logs/Dashi Taskboard Personal/server.log`、端口 127.0.0.1:47823；端口占用则拒绝第二个实例，不接管既有服务。App 退出仅 SIGTERM 自有 Node。CLI 使用 scripts/personal-taskctl。
+
+安装脚本 `python3 scripts/personal-install.py`：验证构建 commit 与 HEAD、dirty=false，同名 App 校验 bundle ID，运行中拒绝替换；先复制 staging，再备份旧 App 并换入。数据库 SQLite backup API 与附件/config 复制保存到用户 Application Support 的独立备份目录。签名使用本地 ad-hoc，未公证，仅本 Mac 验收。
