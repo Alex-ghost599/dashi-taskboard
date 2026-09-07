@@ -3,7 +3,7 @@
 from pathlib import Path
 import datetime, json, plistlib, shutil, sqlite3, subprocess
 root = Path(__file__).resolve().parent.parent
-source = root / 'src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Dashi Taskboard Personal.app'
+source = Path((root / '.local-deploy/artifact-path').read_text().strip())
 home = Path.home()
 target = home / 'Applications/Dashi Taskboard Personal.app'
 data = home / 'Library/Application Support/Dashi Taskboard Personal'
