@@ -1069,6 +1069,7 @@ async function requestCodexAutomationViaCdp(cdp, executionContextId, method, par
     process.pid,
     Date.now().toString(36),
     (++codexAutomationRequestSequence).toString(36),
+    randomUUID(),
   ].join("-");
   const evaluation = await cdp.send("Runtime.evaluate", {
     expression: guardCodexSource(`return (() => new Promise((resolve) => {
@@ -1089,7 +1090,9 @@ async function requestCodexAutomationViaCdp(cdp, executionContextId, method, par
         resolve(result);
       };
       const onMessage = (event) => {
-        if (event.source !== window || event.origin !== window.location.origin) return;
+        // Electron preload dispatches native replies as synthetic MessageEvents.
+        // A foreign frame postMessage always carries its WindowProxy and origin.
+        if (event.source !== null || event.origin !== "") return;
         const message = event.data;
         if (
           !message
@@ -1160,6 +1163,7 @@ async function requestCodexAppServerViaCdp(
     process.pid,
     Date.now().toString(36),
     (++codexAppServerRequestSequence).toString(36),
+    randomUUID(),
   ].join("-");
   const evaluation = await cdp.send("Runtime.evaluate", {
     expression: guardCodexSource(`return (() => new Promise((resolve) => {
@@ -1178,7 +1182,9 @@ async function requestCodexAppServerViaCdp(
         resolve(result);
       };
       const onMessage = (event) => {
-        if (event.source !== window || event.origin !== window.location.origin) return;
+        // Electron preload dispatches native replies as synthetic MessageEvents.
+        // A foreign frame postMessage always carries its WindowProxy and origin.
+        if (event.source !== null || event.origin !== "") return;
         const message = event.data;
         if (
           !message
@@ -2426,8 +2432,7 @@ function installTaskboardHostBinding(
           if (globalThis.__codexTaskboardIsolatedBridgeV1 === capability) return true;
           globalThis.__codexTaskboardIsolatedBridgeV1 = capability;
           window.addEventListener("message", (event) => {
-            if (globalThis.__codexTaskboardIsolatedBridgeV1 !== capability
-              || event.source !== window || event.origin !== window.location.origin) return;
+            if (globalThis.__codexTaskboardIsolatedBridgeV1 !== capability) return;
             const message = event.data;
             if (
               !message
@@ -2435,6 +2440,7 @@ function installTaskboardHostBinding(
             ) return;
             if (
               message.type === "mcp-notification"
+              && event.source === null && event.origin === ""
               && typeof message.hostId === "string"
               && typeof message.method === "string"
             ) {

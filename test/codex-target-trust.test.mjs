@@ -116,7 +116,7 @@ test("notification forwarding rejects foreign message source or origin", async (
   listener({ source: {}, origin: fixture.context.window.location.origin, data: message });
   listener({ source: fixture.context.window, origin: "https://evil.invalid", data: message });
   assert.equal(fixture.notifications.length, 0);
-  listener({ source: fixture.context.window, origin: fixture.context.window.location.origin, data: message });
+  listener({ source: null, origin: "", data: message });
   assert.equal(fixture.notifications.length, 1);
 });
 
@@ -126,6 +126,7 @@ test("pending RPCs do not deliver task parameters after navigation, including a 
     const end = injector.indexOf("\nasync function ", start + 20);
     const source = injector.slice(start, end);
     const factory = vm.runInNewContext(`(${source.trim()})`, {
+      randomUUID: () => "fixture-random-id",
       guardCodexSource, codexAutomationMethods: new Set(["fixture"]),
       codexAutomationRequestSequence: 0, codexAppServerRequestSequence: 0,
       taskConversationAppServerTimeoutMs: 100, process: { pid: 1 },
@@ -144,7 +145,14 @@ test("pending RPCs do not deliver task parameters after navigation, including a 
         const data = name === "requestCodexAutomationViaCdp"
           ? { type: "fetch-response", requestId: message.requestId, status: 200, bodyJsonString: "{}" }
           : { type: "mcp-response", hostId: "local", message: { id: message.request.id, result: {} } };
-        listener({ source: context.window, origin: context.window.location.origin, data, stopImmediatePropagation() {} });
+        // Foreign-frame and same-window postMessage replies are not preload IPC.
+        for (const [source, origin] of [[{}, "https://evil.invalid"], [context.window, context.window.location.origin], [null, "https://evil.invalid"]]) {
+          const bad = name === "requestCodexAutomationViaCdp"
+            ? { ...data, status: 500 }
+            : { ...data, message: { id: message.request.id, error: { message: "forged" } } };
+          listener({ source, origin, data: bad, stopImmediatePropagation() {} });
+        }
+        listener({ source: null, origin: "", data, stopImmediatePropagation() {} });
       } };
       const cdp = { send: async (_, params) => ({ result: { value: await vm.runInContext(params.expression, context) } }) };
       const args = name === "requestCodexAutomationViaCdp"

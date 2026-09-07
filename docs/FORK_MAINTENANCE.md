@@ -30,3 +30,5 @@ origin fetch 为 fork HTTPS，push 为 `git@github.com:Alex-ghost599/dashi-taskb
 - 用户确认保留自动 AI 项目总结和 Markdown/头像外链加载；它们是已接受的数据处理/网络行为，不按恶意后门判定，也不因安全审计擅自关闭。自动认领和上游程序替换更新仍关闭。
 
 - Issue #7：个人App持久私有凭据与受限根入口；CLI/CDP共享唯一服务。external-service是仅附着模式，禁止生命周期接管、版本/HMAC降级、通用runtime写入；停止/失败须撤销本次注入而不停止已有Codex或App。
+
+Issue #7 的兼容补丁将原生 preload 回调与网页 postMessage 分开验证；不退回标题识别，不向外部页面下发令牌，不放宽自动认领或上游更新策略。独立 App 与注入器使用同一持久化凭据/数据库。当前隔离 UI 验收完成，日常部署与最终发布结论尚未形成；远端 host 的 IPC 转发尚未验收。

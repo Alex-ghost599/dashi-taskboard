@@ -50,3 +50,8 @@
 个人入口准备启用持久 token/HMAC 私有文件，CLI 与 CDP 共用同一 App 服务；原 `GET /` 只允许 loopback 导航并跳转到令牌路径。`personal-cdp.mjs` 仅附着已开启的官方 Codex 调试端口，拒绝非 loopback/错误进程及重复实例；外接模式不启动服务或 Codex、不写通用 runtime，退出及失败注入撤销本次脚本/DOM/CSP。
 
 定向测试 55/55（凭据重用/权限/链接拒绝、根入口负向测试、注入失败撤销、已有信任边界/服务测试）。独立 review 初审的版本不匹配、失败注入残留已修复，候选构建和真实UI待执行。正式版本仍94e30bc；后续安装回执与验收记录才代表真实切换。远端host IPC不因外接模式自动成立，不在本轮已验证能力之内；本轮目标是本地同库看板与会话定位。
+
+### CDP 隔离真实 UI 验收（2026-09-07，Issue #7）
+个人入口已复用安装 App 的同一服务与数据库。真实 Electron 测试发现原生 preload 的 `mcp-response` / `fetch-response` 是 `source=null, origin=""` 的合成事件；此前把它们按网页 postMessage 筛选会导致账号读取超时。修复仅对原生回复/通知采用该通道，RPC 添加随机请求 ID；页面间请求仍要求同窗口、同源和 capability，目标/导航守卫保留。
+
+隔离 Codex 实际显示侧边栏、嵌入卡片 202-1；通过嵌入 UI 添加明确测试评论，状态 In review → Done，安装版 CLI 读回同评论和状态。停止自己的 watcher 后入口、iframe、capability 清除，刷新后不恢复；日常 Codex、隔离 Codex、正式看板服务均仍存活。重复启动 watcher 被拒绝。证据保存在本机 `.local-evidence/cdp-isolated/`，截图 `card-ui-pass.png`。这不代表日常实例已部署；最终包复验、日常重启/注入、已有会话定位与最终发布仍待 CLI 接力。

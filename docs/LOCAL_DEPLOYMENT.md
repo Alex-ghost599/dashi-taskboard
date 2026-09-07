@@ -75,3 +75,10 @@ AI 自动总结和外链图片按用户明确需求保留；总结可向配置�
 安装后CLI仍用 `scripts/personal-taskctl`，它调用App内包装器读取私有配置。已有官方Codex用loopback调试端口启动后，可使用App内Node运行 `Contents/Resources/app/scripts/personal-cdp.mjs --port 9229`；当前源码测试可用同名仓库脚本。它先用lsof/ps检查端口归属，使用同一47823服务；服务未就绪就报错，不启动第二套数据库。每端口私有lock记录wrapper PID；停止该PID会只停止注入子进程，移除本次入口及新文档脚本并恢复CSP，保持Codex/App进程。异常遗留锁仅在记录PID不存在时回收；不按名字批量kill。
 
 不自动开启或重启Codex；日常参数切换留给已授权的延迟CLI，必须先有隔离真实UI和独立review证据、再可靠确认无运行任务。没有开机自启或共享Skill/PATH修改。后台日志应写用户日志目录私有文件，因为注入诊断可能包含带令牌的页面URL。外接模式不拥有Node子进程IPC，远端host桥接不算已验收；本地看板、CLI、已有会话定位分别验收。
+
+### 个人 CDP 入口与回滚
+安装包内 Node 执行 `Contents/Resources/app/scripts/personal-cdp.mjs --port <已开启的本机调试端口>`；先启动个人 App。入口校验端口仅 loopback、监听者属于同一官方 Codex 进程家族（允许继承调试 socket 的子进程），不自行启动/终止 Codex，不再另建服务。按 Ctrl-C 或只向已记录 watcher PID 发 SIGTERM 会撤销注入和注册脚本，并恢复 CSP。不要批量 kill Codex。重新启动 watcher 可再次注入；重复 watcher 会被锁拒绝。
+
+隔离验证使用独立 Electron profile 和 CODEX_HOME，仅复制当前登录凭据到私有 0600 文件以验证相同账号；测试结束删除这份自建凭据副本，保留测试历史与 profile。正式数据和持久化个人服务凭据均在 checkout 外。清洁构建 worktree 复用现有依赖时，本仓库 `.git/info/exclude` 增补 `/node_modules` 和 `/src-tauri/target`，原内容备份在 `.local-evidence/git-info-exclude-before-cdp.txt`；只恢复本次增补行，不覆盖后来的配置。
+
+2026-09-07 隔离验收已验证嵌入 UI 写入测试评论/状态并由安装 CLI 读回、停止 watcher 不影响 Codex/服务、刷新后无残留入口。日常实例部署须由独立 CLI 在本轮结束且核实无运行任务后执行，180 秒延时本身不构成空闲证明。日常常用启动入口和最终安装 commit 由该阶段验收后补录。
