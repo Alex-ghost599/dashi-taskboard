@@ -265,6 +265,8 @@ jobs:
           --bundles app
           --no-sign
           --config '{"bundle":{"createUpdaterArtifacts":false}}'
+      - name: Check personal macOS entry without running Codex integration
+        run: cargo check --manifest-path src-tauri/Cargo.toml --features personal --target aarch64-apple-darwin
       - run: test -d "src-tauri/target/universal-apple-darwin/release/bundle/macos/Codex Taskboard.app"
       - name: Verify packaged taskctl and inherited listener
         run: >-

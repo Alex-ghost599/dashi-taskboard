@@ -6,7 +6,7 @@ edition = "2021"
 rust-version = "1.88"
 
 [features]
-default = ["personal"]
+default = []
 personal = []
 
 [build-dependencies]
