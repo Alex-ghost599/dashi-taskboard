@@ -1776,3 +1776,23 @@ test("task changes from one LAN client are broadcast to another client", async (
   assert.equal(listResult.body.tasks.some((task) => task.id === createResult.body.task.id), true);
   await reader.cancel();
 });
+
+test("personal root redirects only loopback navigation and keeps APIs behind the token", async () => {
+  const token = "personal-test-token-123456";
+  const baseUrl = await startServer(() => ({ instanceToken: token, instanceSecret: "a".repeat(64), personalRootRedirect: true }));
+  const response = await fetch(`${baseUrl}/?project=fixture`, { redirect: "manual" });
+  assert.equal(response.status, 302);
+  assert.equal(response.headers.get("location"), `/${token}/?project=fixture`);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.equal(response.headers.get("referrer-policy"), "no-referrer");
+  for (const origin of ["https://evil.invalid", "null", "http://192.168.1.5", "app://-"]) {
+    const denied = await fetch(`${baseUrl}/`, { redirect: "manual", headers: { origin } });
+    assert.equal(denied.status, 403);
+    assert.equal(denied.headers.get("location"), null);
+  }
+  assert.equal((await fetch(`${baseUrl}/api/projects`)).status, 404);
+  assert.equal((await fetch(`${baseUrl}/${token}/api/projects`)).status, 200);
+  const challenge = "b".repeat(64);
+  const health = await fetch(`${baseUrl}/health`, { headers: { "x-codex-taskboard-challenge": challenge } });
+  assert.equal((await health.json()).proof, createHmac("sha256", "a".repeat(64)).update(challenge).digest("hex"));
+});

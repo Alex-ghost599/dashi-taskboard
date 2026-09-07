@@ -2,5 +2,4 @@
 # Use the installed App and its single fixed personal endpoint; no global PATH edit.
 set -eu
 app="$HOME/Applications/Dashi Taskboard Personal.app/Contents"
-export CODEX_TASKBOARD_URL="http://127.0.0.1:47823"
-exec "$app/MacOS/node" "$app/Resources/app/cli/taskctl.mjs" "$@"
+exec "$app/MacOS/node" "$app/Resources/app/scripts/personal-taskctl.mjs" "$@"

@@ -223,6 +223,7 @@ async function copyApplicationResources() {
   await rm(resourcesDirectory, { recursive: true, force: true });
   await mkdir(appResources, { recursive: true });
   await Promise.all([
+    copyFile(path.join(projectRoot, "package.json"), path.join(appResources, "package.json")),
     cp(path.join(projectRoot, "server"), path.join(appResources, "server"), { recursive: true }),
     cp(path.join(projectRoot, "shared"), path.join(appResources, "shared"), { recursive: true }),
     cp(
@@ -252,6 +253,8 @@ async function copyApplicationResources() {
     "codex-injector.mjs",
     "codex-injector-runtime.mjs",
     "codex-target-trust.mjs",
+    "personal-taskctl.mjs",
+    "personal-cdp.mjs",
     "codex-rate-limits.mjs",
     "taskboard-supervisor.mjs",
   ]) {
