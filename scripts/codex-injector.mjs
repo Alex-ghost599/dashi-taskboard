@@ -32,6 +32,8 @@ import {
   validatedLoopbackCdpWebSocketUrl,
 } from "./codex-cdp-pipe.mjs";
 
+import { guardCodexSource, isCodexTarget, requireTrustedCodexFrame } from "./codex-target-trust.mjs";
+
 const injectorPath = fileURLToPath(import.meta.url);
 const projectRoot = path.resolve(path.dirname(injectorPath), "..");
 const defaultCodexDebuggingPort = 9229;
@@ -711,15 +713,6 @@ async function codexTargets(port) {
   });
 }
 
-function isCodexTarget(target) {
-  return (
-      target.type === "page" &&
-      !target.url?.includes("initialRoute=%2Fglobal-dictation") &&
-      !target.url?.includes("initialRoute=%2Favatar-overlay") &&
-      (target.url?.startsWith("app://") || target.title === "Codex")
-  );
-}
-
 function tcpCdpRuntime(port) {
   return {
     targets: () => codexTargets(port),
@@ -1073,7 +1066,7 @@ async function requestCodexAutomationViaCdp(cdp, executionContextId, method, par
     (++codexAutomationRequestSequence).toString(36),
   ].join("-");
   const evaluation = await cdp.send("Runtime.evaluate", {
-    expression: `(() => new Promise((resolve) => {
+    expression: guardCodexSource(`return (() => new Promise((resolve) => {
       const method = ${JSON.stringify(method)};
       const params = ${JSON.stringify(params)};
       const requestId = ${JSON.stringify(requestId)};
@@ -1091,6 +1084,7 @@ async function requestCodexAutomationViaCdp(cdp, executionContextId, method, par
         resolve(result);
       };
       const onMessage = (event) => {
+        if (event.source !== window || event.origin !== window.location.origin) return;
         const message = event.data;
         if (
           !message
@@ -1122,7 +1116,7 @@ async function requestCodexAutomationViaCdp(cdp, executionContextId, method, par
           error: error instanceof Error ? error.message : String(error),
         });
       });
-    }))()`,
+    }))()`),
     ...(Number.isInteger(executionContextId) ? { contextId: executionContextId } : {}),
     awaitPromise: true,
     returnByValue: true,
@@ -1163,7 +1157,7 @@ async function requestCodexAppServerViaCdp(
     (++codexAppServerRequestSequence).toString(36),
   ].join("-");
   const evaluation = await cdp.send("Runtime.evaluate", {
-    expression: `(() => new Promise((resolve) => {
+    expression: guardCodexSource(`return (() => new Promise((resolve) => {
       const requestId = ${JSON.stringify(requestId)};
       const bridge = window.electronBridge;
       if (!bridge || typeof bridge.sendMessageFromView !== "function") {
@@ -1179,6 +1173,7 @@ async function requestCodexAppServerViaCdp(
         resolve(result);
       };
       const onMessage = (event) => {
+        if (event.source !== window || event.origin !== window.location.origin) return;
         const message = event.data;
         if (
           !message
@@ -1220,7 +1215,7 @@ async function requestCodexAppServerViaCdp(
           error: error instanceof Error ? error.message : String(error),
         });
       });
-    }))()`,
+    }))()`),
     ...(Number.isInteger(executionContextId) ? { contextId: executionContextId } : {}),
     awaitPromise: true,
     returnByValue: true,
@@ -2094,7 +2089,7 @@ async function startTaskConversationViaCdp(cdp, executionContextId, request) {
   let submitted = false;
   while (Date.now() < deadline) {
     const prepared = await cdp.send("Runtime.evaluate", {
-      expression: `(() => {
+      expression: guardCodexSource(`return (() => {
         const root = Array.from(document.querySelectorAll(
           '[data-codex-composer-root][data-composer-placement="home"]'
         )).find((candidate) => candidate.getClientRects().length > 0);
@@ -2113,7 +2108,7 @@ async function startTaskConversationViaCdp(cdp, executionContextId, request) {
         ) return false;
         editor.focus();
         return true;
-      })()`,
+      })()`),
       contextId: executionContextId,
       returnByValue: true,
     });
@@ -2145,7 +2140,7 @@ async function startTaskConversationViaCdp(cdp, executionContextId, request) {
   try {
     while (Date.now() < threadDeadline) {
       const started = await cdp.send("Runtime.evaluate", {
-        expression: `(() => {
+        expression: guardCodexSource(`return (() => {
           const root = Array.from(document.querySelectorAll(
             '[data-codex-composer-root][data-composer-placement="thread"]'
           )).find((candidate) => candidate.getClientRects().length > 0);
@@ -2154,7 +2149,7 @@ async function startTaskConversationViaCdp(cdp, executionContextId, request) {
             ?.getAttribute('data-above-composer-conversation-id')
             ?.trim() || "";
           return threadId.replace(/^(?:local|cloud):/i, "");
-        })()`,
+        })()`),
         contextId: executionContextId,
         returnByValue: true,
       });
@@ -2283,11 +2278,11 @@ function getOrStartTaskConversation(cdp, executionContextId, request) {
 
 async function sendHostResponse(cdp, executionContextId, response) {
   await cdp.send("Runtime.evaluate", {
-    expression: `window.postMessage({
+    expression: guardCodexSource(`window.postMessage({
       type: ${JSON.stringify(hostResponseMessage)},
       capability: ${JSON.stringify(hostCapability)},
       response: ${JSON.stringify(response)}
-    }, window.location.origin)`,
+    }, window.location.origin)`),
     contextId: executionContextId,
     returnByValue: true,
   });
@@ -2302,6 +2297,18 @@ function installTaskboardHostBinding(
 ) {
   let activeContextId = null;
   let installInFlight = null;
+  let navigationGeneration = 0;
+  const revokeContext = () => {
+    activeContextId = null;
+    navigationGeneration += 1;
+  };
+  cdp.on("Runtime.executionContextsCleared", revokeContext);
+  cdp.on("Runtime.executionContextDestroyed", ({ executionContextId }) => {
+    if (executionContextId === activeContextId) revokeContext();
+  });
+  cdp.on("Page.frameNavigated", ({ frame }) => {
+    if (!frame.parentId) revokeContext();
+  });
 
   cdp.on("Runtime.bindingCalled", async (params) => {
     if (params.executionContextId !== activeContextId) return;
@@ -2389,27 +2396,30 @@ function installTaskboardHostBinding(
   async function install() {
     if (installInFlight) return installInFlight;
     installInFlight = (async () => {
-      const { frameTree } = await cdp.send("Page.getFrameTree");
+      activeContextId = null;
+      const generation = navigationGeneration;
+      const frame = await requireTrustedCodexFrame(cdp);
       const isolatedWorld = await cdp.send("Page.createIsolatedWorld", {
-        frameId: frameTree.frame.id,
+        frameId: frame.id,
         worldName: "codex-taskboard-host",
       });
-      activeContextId = isolatedWorld.executionContextId;
+      const candidateContextId = isolatedWorld.executionContextId;
       await cdp.send("Runtime.addBinding", {
         name: hostBindingName,
-        executionContextId: activeContextId,
+        executionContextId: candidateContextId,
       });
       await cdp.send("Runtime.addBinding", {
         name: codexNotificationBindingName,
-        executionContextId: activeContextId,
+        executionContextId: candidateContextId,
       });
-      await cdp.send("Runtime.evaluate", {
-        contextId: activeContextId,
-        expression: `(() => {
+      const installed = await cdp.send("Runtime.evaluate", {
+        contextId: candidateContextId,
+        expression: guardCodexSource(`
           const capability = ${JSON.stringify(hostCapability)};
-          if (globalThis.__codexTaskboardIsolatedBridgeV1 === capability) return;
+          if (globalThis.__codexTaskboardIsolatedBridgeV1 === capability) return true;
           globalThis.__codexTaskboardIsolatedBridgeV1 = capability;
           window.addEventListener("message", (event) => {
+            if (event.source !== window || event.origin !== window.location.origin) return;
             const message = event.data;
             if (
               !message
@@ -2435,9 +2445,14 @@ function installTaskboardHostBinding(
             ) return;
             globalThis[${JSON.stringify(hostBindingName)}](JSON.stringify(message.payload));
           });
-        })()`,
+          return true;
+        `),
         returnByValue: true,
       });
+      if (installed.result?.value !== true || generation !== navigationGeneration) {
+        throw new Error("Codex document changed during host bridge installation");
+      }
+      activeContextId = candidateContextId;
       onCodexAppServerReady(cdp);
       await restoreQuotaPolicies(cdp);
       return activeContextId;
@@ -2457,12 +2472,12 @@ function installTaskboardHostBinding(
           const executionContextId = await install();
           await cdp.send("Runtime.evaluate", {
             contextId: executionContextId,
-            expression: `window.postMessage({
+            expression: guardCodexSource(`window.postMessage({
               type: ${JSON.stringify(hostHeartbeatMessage)},
               capability: ${JSON.stringify(hostCapability)},
               at: Date.now(),
               startupToken: ${JSON.stringify(startupToken)}
-            }, window.location.origin)`,
+            }, window.location.origin)`),
             returnByValue: true,
           });
         })(),
@@ -2530,7 +2545,7 @@ async function evaluateInjectionSource(cdp, source) {
 
 async function publishInjectionScriptIdentifier(cdp, scriptIdentifier) {
   await cdp.send("Runtime.evaluate", {
-    expression: `window[${JSON.stringify(injectionScriptIdentifierName)}] = ${JSON.stringify(scriptIdentifier)}`,
+    expression: guardCodexSource(`window[${JSON.stringify(injectionScriptIdentifierName)}] = ${JSON.stringify(scriptIdentifier)}`),
     returnByValue: true,
   });
 }
@@ -2571,6 +2586,17 @@ async function injectTarget(
   cdp.hostBridge = hostBridge;
   try {
     await cdp.send("Page.enable");
+    await requireTrustedCodexFrame(cdp);
+    cdp.on("Page.frameNavigated", async ({ frame }) => {
+      if (frame.parentId || isCodexTarget({ type: "page", url: frame.url })) return;
+      onCodexAppServerUnavailable(cdp);
+      unregisterQuotaPolicyCdp(cdp);
+      try {
+        await cdp.send("Page.setBypassCSP", { enabled: false });
+      } finally {
+        cdp.close();
+      }
+    });
     await cdp.send("Page.setBypassCSP", { enabled: true });
     await cdp.send("Runtime.enable");
     if (keepAlive) await hostBridge.install();
@@ -2687,11 +2713,6 @@ async function injectAll(
   onCodexAppServerUnavailable,
 ) {
   const targets = await runtime.targets();
-  if (targets.length === 0) {
-    if (keepAlive) return [];
-    throw new Error("No Codex renderer target found");
-  }
-
   const activeIds = new Set(targets.map((target) => target.id));
   for (const [id, connection] of injectedTargets) {
     if (!activeIds.has(id) || connection.closed) {
@@ -2700,6 +2721,11 @@ async function injectAll(
       connection.close();
       injectedTargets.delete(id);
     }
+  }
+
+  if (targets.length === 0) {
+    if (keepAlive) return [];
+    throw new Error("No Codex renderer target found");
   }
 
   const results = [];
@@ -2733,11 +2759,11 @@ async function currentInjectionSource() {
 window.__CODEX_TASKBOARD_HOST_CAPABILITY__ = ${JSON.stringify(hostCapability)};
 window.__CODEX_TASKBOARD_URL__ = ${JSON.stringify(taskboardPageUrl)};
 ${userScript}`;
-  const sourceHash = createHash("sha256").update(runtimeSource).digest("hex");
+  const sourceHash = createHash("sha256").update(guardCodexSource(runtimeSource)).digest("hex");
   return {
     sourceHash,
-    source: `window[${JSON.stringify(injectionSourceHashName)}] = ${JSON.stringify(sourceHash)};
-${runtimeSource}`,
+    source: guardCodexSource(`window[${JSON.stringify(injectionSourceHashName)}] = ${JSON.stringify(sourceHash)};
+${runtimeSource}`),
   };
 }
 
