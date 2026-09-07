@@ -1,4 +1,4 @@
-import { access, mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,11 +7,11 @@ import { Miniflare } from "miniflare";
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const ENTRY_PATH = path.join(PROJECT_ROOT, "cloud", "src", "index.mjs");
-const MIGRATION_PATH = path.join(PROJECT_ROOT, "cloud", "migrations", "0001_initial.sql");
+const MIGRATIONS_PATH = path.join(PROJECT_ROOT, "cloud", "migrations");
 
 async function requireCloudImplementation() {
   const missing = [];
-  for (const filename of [ENTRY_PATH, MIGRATION_PATH]) {
+  for (const filename of [ENTRY_PATH, MIGRATIONS_PATH]) {
     try {
       await access(filename);
     } catch (error) {
@@ -40,15 +40,41 @@ export async function createCloudWorkerHarness({
     },
     d1Databases: { DB: "taskboard-test" },
     r2Buckets: { ATTACHMENTS: "taskboard-test-attachments" },
+    durableObjects: {
+      REALTIME_HUB: { className: "RealtimeHub", useSQLite: true },
+    },
     defaultPersistRoot: persistenceRoot,
     d1Persist: true,
     r2Persist: true,
+    durableObjectsPersist: true,
   });
 
   try {
     await miniflare.ready;
     const db = await miniflare.getD1Database("DB");
-    await db.exec(await readFile(MIGRATION_PATH, "utf8"));
+    const migrations = (await readdir(MIGRATIONS_PATH))
+      .filter((filename) => /^\d+.*\.sql$/.test(filename))
+      .sort();
+    for (const migration of migrations) {
+      const statements = [];
+      let current = [];
+      let trigger = false;
+      for (const sourceLine of (await readFile(
+        path.join(MIGRATIONS_PATH, migration),
+        "utf8",
+      )).split(/\r?\n/)) {
+        const line = sourceLine.trim();
+        if (line === "") continue;
+        if (current.length === 0) trigger = /^CREATE\s+TRIGGER\b/i.test(line);
+        current.push(line);
+        if ((trigger ? /\bEND;$/i : /;$/).test(line)) {
+          statements.push(current.join(" "));
+          current = [];
+          trigger = false;
+        }
+      }
+      await db.exec(statements.join("\n"));
+    }
     const attachments = await miniflare.getR2Bucket("ATTACHMENTS");
 
     async function request(pathname, {
@@ -83,9 +109,32 @@ export async function createCloudWorkerHarness({
       return { response, body };
     }
 
+    async function connectWebSocket(pathname = "/api/events", {
+      actorName,
+      password = sharedSecret,
+      cookie,
+    } = {}) {
+      const headers = new Headers({ upgrade: "websocket" });
+      if (actorName !== undefined) {
+        headers.set(
+          "authorization",
+          `Basic ${Buffer.from(`${actorName}:${password}`, "utf8").toString("base64")}`,
+        );
+      }
+      if (cookie !== undefined) headers.set("cookie", cookie);
+      const response = await miniflare.dispatchFetch(
+        new URL(pathname, "https://taskboard.example.test"),
+        { headers },
+      );
+      const socket = response.webSocket;
+      if (socket) socket.accept();
+      return { response, socket };
+    }
+
     return {
       attachments,
       db,
+      connectWebSocket,
       miniflare,
       request,
       sharedSecret,

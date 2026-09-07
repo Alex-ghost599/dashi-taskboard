@@ -1,12 +1,12 @@
 import path from "node:path";
 
+import { DEFAULT_PROJECT_ID } from "../shared/domain.mjs";
 import { normalizeCloudUrl } from "./cloud-config.mjs";
 
 const LOCAL_COMPANION_ROUTES = new Set([
   "/health",
   "/api/meta",
   "/api/device-workspaces",
-  "/api/workflow-capabilities",
   "/api/local/cloud-session",
 ]);
 
@@ -30,35 +30,26 @@ function basicAuthorization(actorName, sharedKey) {
   return `Basic ${Buffer.from(`${actorName}:${sharedKey}`, "utf8").toString("base64")}`;
 }
 
-function removeGitWorktreePaths(value) {
-  if (Array.isArray(value)) {
-    for (const item of value) removeGitWorktreePaths(item);
-    return;
-  }
-  if (value === null || typeof value !== "object") return;
-  for (const [key, item] of Object.entries(value)) {
-    if (key === "gitWorktreePath") {
-      delete value[key];
-    } else {
-      removeGitWorktreePaths(item);
-    }
-  }
-}
-
-async function prepareRequest(request) {
+async function prepareRequest(request, {
+  assertTaskProjectMoveAllowed,
+  resolveThreadBinding,
+} = {}) {
   const url = new URL(request.url);
   let projectWorkspace = null;
   let body = request.body;
   const isJson = request.headers.get("content-type")?.includes("application/json");
   const isProjectCreate = request.method === "POST" && url.pathname === "/api/projects";
+  const taskPatchMatch = request.method === "PATCH"
+    ? url.pathname.match(/^\/api\/tasks\/([^/]+)$/)
+    : null;
   const isTaskMutation = (
     (request.method === "POST" && url.pathname === "/api/tasks")
-    || (request.method === "PATCH" && /^\/api\/tasks\/[^/]+$/.test(url.pathname))
+    || Boolean(taskPatchMatch)
   );
-  const isWorkflowMutation = request.method === "PUT"
-    && /^\/api\/projects\/[^/]+\/workflow-workspace$/.test(url.pathname);
+  const isConversationMutation = request.method !== "GET"
+    && (/^\/api\/tasks(?:\/|$)/.test(url.pathname) || /^\/api\/comments\//.test(url.pathname));
 
-  if (isJson && (isProjectCreate || isTaskMutation || isWorkflowMutation)) {
+  if (isJson && (isProjectCreate || isTaskMutation || isConversationMutation)) {
     let payload;
     try {
       payload = await request.clone().json();
@@ -67,6 +58,19 @@ async function prepareRequest(request) {
     }
     if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
       throw new CloudProxyError(400, "INVALID_BODY", "Request body must be a JSON object");
+    }
+    if (
+      taskPatchMatch
+      && typeof payload.projectId === "string"
+      && typeof assertTaskProjectMoveAllowed === "function"
+    ) {
+      let taskId;
+      try {
+        taskId = decodeURIComponent(taskPatchMatch[1]);
+      } catch {
+        throw new CloudProxyError(400, "INVALID_PATH", "Task id contains invalid encoding");
+      }
+      await assertTaskProjectMoveAllowed(taskId, payload.projectId);
     }
     if (isProjectCreate && Object.hasOwn(payload, "workspacePath")) {
       if (typeof payload.workspacePath === "string") {
@@ -92,7 +96,15 @@ async function prepareRequest(request) {
           : { branch: payload.developmentContext.branch }),
       };
     }
-    if (isWorkflowMutation) removeGitWorktreePaths(payload.workspace);
+    if (
+      isConversationMutation
+      && typeof payload.threadId === "string"
+      && !Object.hasOwn(payload, "threadBinding")
+      && typeof resolveThreadBinding === "function"
+    ) {
+      const threadBinding = resolveThreadBinding(payload.threadId);
+      if (threadBinding) payload.threadBinding = threadBinding;
+    }
     body = JSON.stringify(payload);
   }
 
@@ -137,13 +149,17 @@ async function localizeResponse(
   if (Array.isArray(payload.projects)) {
     payload.projects = payload.projects.map((project) => ({
       ...project,
-      workspacePath: config.projectMappings[project.id] ?? null,
+      workspacePath: project.id === DEFAULT_PROJECT_ID
+        ? null
+        : config.projectMappings[project.id] ?? null,
     }));
   }
   if (payload.project && typeof payload.project === "object") {
     payload.project = {
       ...payload.project,
-      workspacePath: config.projectMappings[payload.project.id] ?? null,
+      workspacePath: payload.project.id === DEFAULT_PROJECT_ID
+        ? null
+        : config.projectMappings[payload.project.id] ?? null,
     };
   }
   if (payload.task) {
@@ -180,11 +196,39 @@ export function createCloudProxy({
   getConfig,
   fetch: fetchImplementation = globalThis.fetch,
   resolveDevelopmentContext,
+  assertTaskProjectMoveAllowed,
+  resolveThreadBinding,
 }) {
   const readConfig = getConfig ?? (() => configStore.read());
   const setProjectWorkspace = configStore?.setProjectWorkspace?.bind(configStore);
 
   return {
+    async webSocketTarget(pathname = "/api/events") {
+      const config = await readConfig();
+      if (!config?.remoteUrl || !config.actorName || !config.sharedKey) {
+        throw new CloudProxyError(
+          409,
+          "CLOUD_NOT_CONFIGURED",
+          "Cloud collaboration is not configured",
+        );
+      }
+      let remoteUrl;
+      try {
+        remoteUrl = normalizeCloudUrl(config.remoteUrl);
+      } catch (error) {
+        throw new CloudProxyError(
+          500,
+          "INVALID_CLOUD_CONFIG",
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+      const url = new URL(pathname, `${remoteUrl}/`);
+      url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+      return {
+        url: url.href,
+        headers: { authorization: basicAuthorization(config.actorName, config.sharedKey) },
+      };
+    },
     async forward(request) {
       const config = await readConfig();
       if (!config?.remoteUrl || !config.actorName || !config.sharedKey) {
@@ -215,12 +259,16 @@ export function createCloudProxy({
       headers.delete("host");
       headers.delete("connection");
       headers.delete("transfer-encoding");
+      headers.delete("accept-encoding");
       for (const name of [...headers.keys()]) {
         if (name.toLowerCase().startsWith("x-taskboard-user-")) headers.delete(name);
       }
       headers.set("authorization", basicAuthorization(config.actorName, config.sharedKey));
 
-      const prepared = await prepareRequest(request);
+      const prepared = await prepareRequest(request, {
+        assertTaskProjectMoveAllowed,
+        resolveThreadBinding,
+      });
       if (prepared.projectWorkspace && !setProjectWorkspace) {
         throw new CloudProxyError(
           500,

@@ -10,10 +10,12 @@ const detailSource = await readFile(new URL("../web/src/components/TaskDetail.ts
 const labelPickerSource = await readFile(new URL("../web/src/components/LabelPicker.tsx", import.meta.url), "utf8");
 const labelsSource = await readFile(new URL("../web/src/labels.ts", import.meta.url), "utf8");
 
-test("the project home merges live Codex projects with persisted Taskboard projects", () => {
+test("the project switcher merges live Codex projects with persisted Taskboard projects", () => {
   assert.match(appSource, /hostContext\?\.projects \?\? \[\]/);
   assert.match(appSource, /persistedById/);
-  assert.match(appSource, /project\.inCodex \? "Codex 项目" : "已保存的项目"/);
+  assert.match(appSource, /name: project\.id === GLOBAL_PROJECT_ID\s*\? text\("临时任务", "Temporary tasks"\)\s*: persistedById\.get\(project\.id\)\?\.name \?\? project\.name/);
+  assert.match(appSource, /for \(const project of projects\) \{[\s\S]*?inCodex: false,[\s\S]*?persisted: true/);
+  assert.match(appSource, /projectMenuChoices\.map\(\(project\) => \(/);
   assert.match(appSource, /createProjectRequest/);
   assert.match(apiSource, /export async function createProject/);
 });
@@ -24,39 +26,48 @@ test("each device stores an independent workspace path for every project", () =>
   assert.match(appSource, /rememberDeviceWorkspacePath/);
   assert.match(appSource, /const \[nextProjects, metadata, workspaces\] = await Promise\.all\(\[/);
   assert.match(appSource, /listDeviceWorkspaces\(signal\)/);
-  assert.match(appSource, /placeholder="设置此设备的项目目录"/);
-  assert.match(appSource, /deviceWorkspacePaths\[selectedProjectId\]/);
+  assert.match(appSource, /const selectedDeviceWorkspacePath = selectedProjectId === GLOBAL_PROJECT_ID[\s\S]*?: deviceWorkspacePaths\[selectedProjectId\]/);
+  assert.match(appSource, /listDevelopmentContexts\([\s\S]*?selectedDeviceWorkspacePath,[\s\S]*?\)/);
   assert.match(apiSource, /query\.set\("workspacePath", workspacePath\)/);
   assert.match(apiSource, /\/api\/device-workspaces/);
-  assert.match(styles, /\.project-card-directory \{/);
 });
 
-test("project selection is remembered until the user explicitly returns home", () => {
-  assert.match(appSource, /const LAST_PROJECT_KEY = "taskboard\.lastProjectId"/);
-  assert.match(appSource, /window\.localStorage\.setItem\(LAST_PROJECT_KEY, projectId\)/);
-  assert.match(appSource, /function returnToProjectHome\(\)/);
-  assert.match(appSource, /window\.localStorage\.removeItem\(LAST_PROJECT_KEY\)/);
-  assert.match(appSource, /aria-label="返回项目首页"/);
-  assert.match(appSource, /className="detail-back-button project-home-button"[\s\S]*?<span>首页<\/span>/);
-  assert.match(styles, /\.project-home-button \{[\s\S]*?width: auto/);
+test("imported Codex projects persist their exact device identity", () => {
+  assert.match(appSource, /const PROJECT_CODEX_IDENTITIES_KEY = "taskboard\.projectCodexIdentities\.v1"/);
+  assert.match(appSource, /codexProjectId: project\.id,[\s\S]*?codexProjectKind: project\.projectKind,[\s\S]*?codexHostId: project\.hostId,[\s\S]*?workspacePath: project\.workspacePath/);
+  assert.match(appSource, /setProjectCodexIdentities[\s\S]*?PROJECT_CODEX_IDENTITIES_KEY/);
 });
 
-test("the home uses the same restrained surface language as the issue board", () => {
-  assert.match(appSource, /<section className="project-home">/);
-  assert.match(appSource, /title: "已有议题", projects: projectsWithIssues/);
-  assert.match(appSource, /title: "尚未添加议题", projects: projectsWithoutIssues/);
-  assert.match(appSource, /project\.issueCount > 0/);
-  assert.match(styles, /\.project-grid \{[\s\S]*?grid-template-columns:/);
-  assert.match(styles, /\.project-card \{[\s\S]*?border: var\(--border-hairline\)/);
+test("project selection starts from the route or recent projects and updates the route", () => {
+  assert.match(appSource, /const RECENT_PROJECT_IDS_KEY = "taskboard\.recentProjectIds\.v1"/);
+  assert.match(appSource, /const initialProjectId = query\.get\("project"\) \?\? recentProjectIds\[0\] \?\? ALL_PROJECTS_ID/);
+  assert.match(appSource, /const rememberProjectOpen = useCallback/);
+  assert.match(appSource, /taskboardStorage\.setItem\(RECENT_PROJECT_IDS_KEY, JSON\.stringify\(next\)\)/);
+  assert.match(appSource, /function changeProject\(projectId: string\)/);
+  assert.match(appSource, /setSelectedProjectId\(projectId\)/);
+  assert.match(appSource, /const url = buildIssueUrl\(window\.location\.href, projectId, null\)/);
+  assert.match(appSource, /window\.history\.replaceState\(null, "", url\)/);
 });
 
-test("new issues stage attachments in the composer and upload them after creation", () => {
+test("the selected project exposes the current board surfaces", () => {
+  assert.match(appSource, /<header className="workspace-header">/);
+  assert.match(appSource, /<div className="board-toolbar">/);
+  assert.match(appSource, /<DashboardView/);
+  assert.match(appSource, /<IssueListView/);
+  assert.match(appSource, /<GanttView/);
+  assert.match(appSource, /<BoardColumn/);
+  assert.match(styles, /\.workspace-header \{[\s\S]*?border-bottom: var\(--border-hairline\) solid var\(--border\)/);
+});
+
+test("new issues insert attachments into the description and upload them after creation", () => {
   assert.match(editorSource, /type="file"[\s\S]*?multiple/);
-  assert.match(editorSource, /className="composer-attachment-list"/);
-  assert.match(editorSource, /保存后上传/);
+  assert.match(editorSource, /<InlineMediaComposer[\s\S]*?allowAttachments/);
+  assert.match(editorSource, /descriptionComposerRef\.current\?\.addFiles\(event\.currentTarget\.files\)/);
+  assert.match(editorSource, /inlineMediaFiles\(descriptionSegments\)/);
   assert.match(appSource, /Promise\.allSettled/);
-  assert.match(appSource, /uploadAttachment\(saved\.id, file\)/);
-  assert.match(appSource, /附件上传失败，可在详情页重试/);
+  assert.match(appSource, /uploadAttachment\(saved\.id, file\.file, "attachment"\)/);
+  assert.match(appSource, /uploadAttachment\(saved\.id, image\.file, "inline"\)/);
+  assert.match(appSource, /resolveInlineAttachmentMarkdown\([\s\S]*?resolveInlineMediaMarkdown\(/);
 });
 
 test("the issue composer includes Linear-style labels and scheduling", () => {
@@ -64,53 +75,55 @@ test("the issue composer includes Linear-style labels and scheduling", () => {
     assert.match(labelsSource, new RegExp(label));
   }
   assert.match(editorSource, /<LabelPicker/);
-  assert.match(labelPickerSource, /创建 “\{normalizedSearch\}”/);
+  assert.match(labelPickerSource, /text\(`创建 “\$\{normalizedSearch\}”`, `Create “\$\{normalizedSearch\}”`\)/);
   assert.match(editorSource, /设置截止日期/);
   assert.match(editorSource, /设置重复/);
   assert.match(editorSource, /最早截止日期/);
   assert.match(editorSource, /developmentScan\.contexts/);
 });
 
-test("the current project is shown only in navigation, not in issue creation or detail properties", () => {
-  assert.doesNotMatch(editorSource, /property-project|dialog-project-icon|project\?\.name/);
+test("issue creation selects a project only from all projects and keeps the current project otherwise", () => {
+  assert.match(editorSource, /\{!task && projectOptions && \([\s\S]*?ariaLabel=\{text\("项目", "Project"\)\}/);
   assert.doesNotMatch(detailSource, /detail-property-label">项目|project-property-icon|project\.name/);
-  assert.doesNotMatch(styles, /\.property-project|\.dialog-project-icon|\.project-property-icon/);
-  assert.match(appSource, /createTaskRequest\(selectedProjectId, draft\)/);
+  assert.match(appSource, /projectOptions=\{!editor\.task && isAllProjects \? createTargetProjects : undefined\}/);
+  assert.match(appSource, /const targetProjectId = editorProjectId \?\? selectedProjectId;[\s\S]*?createTaskRequest\(targetProjectId, draft\)/);
   assert.match(appSource, /className="header-project-switcher"/);
 });
 
-test("the project header exposes real controls instead of decorative actions", () => {
+test("the project header exposes project, automation, and create controls", () => {
   assert.match(appSource, /className="header-project-button"[\s\S]*?aria-haspopup="menu"/);
-  assert.match(appSource, /className=\{`favorite-button[\s\S]*?aria-pressed=/);
-  assert.match(appSource, /FAVORITE_PROJECTS_KEY/);
+  assert.match(appSource, /className="header-project-menu" role="menu" aria-label=\{text\("项目", "Projects"\)\}/);
+  assert.match(appSource, /<ProjectAutomationMenu/);
+  assert.match(appSource, /className="icon-button header-create-button"/);
   assert.match(styles, /\.header-project-menu \{[\s\S]*?-webkit-app-region: no-drag/);
 });
 
-test("the project breadcrumb stops at the project name", () => {
-  assert.match(
-    appSource,
-    /className="detail-back-button project-home-button"[\s\S]*?<span>首页<\/span>[\s\S]*?selectedProjectId && <span className="breadcrumb-chevron"[\s\S]*?className="header-project-switcher"/,
-  );
+test("the project header keeps detail navigation separate from the project switcher", () => {
+  assert.match(appSource, /const headerProjectName = isAllProjects\s*\? text\("所有项目", "All projects"\)\s*: selectedProject\?\.id === GLOBAL_PROJECT_ID\s*\? text\("临时任务", "Temporary tasks"\)\s*: selectedProject\?\.name \?\? text\("任务面板", "Taskboard"\)/);
+  assert.match(appSource, /detailTask && \([\s\S]*?aria-label=\{text\("返回议题看板", "Back to issue board"\)\}[\s\S]*?<\/button>/);
+  assert.match(appSource, /className="header-project-switcher"[\s\S]*?<span className="project-name">\{headerProjectName\}<\/span>/);
   assert.doesNotMatch(appSource, /className="issue-root-button"/);
   assert.doesNotMatch(appSource, /detailTask\?\.identifier \?\? "议题"/);
 });
 
-test("the collapsed Codex sidebar can be expanded immediately left of Home", () => {
+test("the collapsed Codex sidebar can be expanded immediately left of the project switcher", () => {
   assert.match(
     appSource,
-    /hostContext\?\.sidebarCollapsed[\s\S]*?className="detail-back-button codex-sidebar-expand-button"[\s\S]*?className="detail-back-button project-home-button"/,
+    /hostContext\?\.sidebarCollapsed[\s\S]*?className="detail-back-button codex-sidebar-expand-button"[\s\S]*?className="header-project-switcher"/,
   );
-  assert.match(styles, /\.codex-sidebar-expand-button \+ \.project-home-button \{[\s\S]*?margin-left: 0;/);
+  assert.match(styles, /\.codex-sidebar-expand-button \{[\s\S]*?width: 28px;[\s\S]*?height: 28px;/);
 });
 
-test("the project home omits the navigation bar but keeps an invisible drag region", () => {
-  assert.match(appSource, /selectedProjectId \? \([\s\S]*?<header className="workspace-header"/);
-  assert.match(appSource, /className="home-window-drag-region"/);
-  assert.match(styles, /\.home-window-drag-region \{[\s\S]*?position: absolute;[\s\S]*?pointer-events: none/);
+test("the app omits the old navigation and keeps the embedded draggable header region", () => {
+  assert.doesNotMatch(appSource, /<aside className="app-nav"/);
+  assert.match(appSource, /<header className="workspace-header">/);
+  assert.match(appSource, /ref=\{dragRegionRef\} className="workspace-drag-region"/);
+  assert.match(styles, /\.workspace-drag-region \{[\s\S]*?flex: 1;[\s\S]*?align-self: stretch/);
+  assert.match(styles, /\.app-shell\.embedded \.workspace-drag-region \{[\s\S]*?-webkit-app-region: drag/);
 });
 
 test("realtime updates remain active on the project home and reconcile after reconnecting", () => {
-  assert.match(appSource, /useEffect\(\(\) => \{\s*const source = new EventSource\("\/api\/events"\)/);
+  assert.match(appSource, /useEffect\(\(\) => \{\s*const source = new EventSource\(resolveTaskboardUrl\("\/api\/events"\)\)/);
   assert.match(appSource, /event\.type\.startsWith\("task\."\)[\s\S]*?scheduleRefresh\(\{ projects: true, tasks: affectsSelectedProject \}\)/);
   assert.match(appSource, /source\.onopen = \(\) => \{[\s\S]*?scheduleRefresh\(\{ projects: true, tasks: Boolean\(selectedProjectId\) \}\)/);
 });
