@@ -5,7 +5,7 @@ export function isTrustedCodexUrl(value) {
     return url.protocol === "app:"
       && url.hostname === "-"
       && !url.port && !url.username && !url.password
-      && !["/global-dictation", "/avatar-overlay"].includes(url.searchParams.get("initialRoute"));
+      && !["/global-dictation", "/avatar-overlay", "/hotkey-window"].includes(url.searchParams.get("initialRoute"));
   } catch {
     return false;
   }
@@ -25,6 +25,11 @@ export function guardCodexSource(source) {
       || window.location.protocol !== "app:"
       || window.location.hostname !== "-"
       || window.location.port !== "") return;
+    try {
+      if (/(?:^|[?&])initialRoute=\\/(?:global-dictation|avatar-overlay|hotkey-window)(?:&|$)/.test(
+        decodeURIComponent(window.location.search),
+      )) return;
+    } catch { return; }
     ${source}
   })()`;
 }

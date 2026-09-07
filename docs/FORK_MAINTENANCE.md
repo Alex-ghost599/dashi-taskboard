@@ -2,6 +2,8 @@
 
 ## 日常 CDP 维护增量（2026-09-07）
 
+日常后验收发现的 hotkey 辅助窗口兼容修复从最新develop另建 `fix--cdp-hotkey-targets`，不在已合并旧分支继续开发。目标发现及新文档guard同步排除 `/hotkey-window`；保留原native preload兼容和同源/capability守卫。回归覆盖三个辅助route的discovery/frame/guard拒绝及正常会话route可用。
+
 PR #8 已 squash 至 develop `f353e0c7a2af8c3758286eaa71e1c16080700b29`；旧 feat--personal-cdp-integration 保留。日常启动改动从该 develop 创建 `fix--daily-cdp-launch`，仍仅个人 fork PR → develop squash → 验收后 main fast-forward，保留分支/worktree。
 
 新增 scripts/personal-cdp-open.py 为手工启动入口，默认日常 home/profile、9229 loopback、已运行无 CDP 拒绝、已有注入器复用；没有常驻开机服务或替换更新源。test/personal-cdp-open_test.py 覆盖七个进程/端口/home 分支，通用 Check 加入执行。入口只调用安装版注入器，不重新实现 CDP 协议。

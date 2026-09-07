@@ -208,3 +208,23 @@ test("resident cleanup still runs when discovery finds no trusted targets", asyn
   assert.equal(unavailable, 1);
   assert.equal(targets.size, 0);
 });
+
+
+test("auxiliary Codex windows are rejected at discovery, frame and execution", async () => {
+  for (const route of ["global-dictation", "avatar-overlay", "hotkey-window"]) {
+    for (const value of [`/${route}`, `%2F${route}`, `%2f${route}`]) {
+      const url = `app://-/index.html?initialRoute=${value}`;
+      assert.equal(isCodexTarget({ type: "page", url }), false);
+      const cdp = { send: async () => ({ frameTree: { frame: { id: "main", url } } }) };
+      await assert.rejects(requireTrustedCodexFrame(cdp), /untrusted/);
+      const context = documentContext(url);
+      // Even a previously registered main-window script must not assign on
+      // a new auxiliary document. Origin validation keeps its native fields.
+      vm.runInContext(guardCodexSource("window.secret = 'fixture';"), context);
+      assert.equal(context.window.secret, undefined);
+    }
+  }
+  const main = documentContext("app://-/index.html?initialRoute=%2Fthread%2Ffixture");
+  vm.runInContext(guardCodexSource("window.mounted = true;"), main);
+  assert.equal(main.window.mounted, true);
+});
