@@ -1,5 +1,15 @@
 # 个人 fork 维护
 
+## 日常 CDP 维护增量（2026-09-07）
+
+PR #8 已 squash 至 develop `f353e0c7a2af8c3758286eaa71e1c16080700b29`；旧 feat--personal-cdp-integration 保留。日常启动改动从该 develop 创建 `fix--daily-cdp-launch`，仍仅个人 fork PR → develop squash → 验收后 main fast-forward，保留分支/worktree。
+
+新增 scripts/personal-cdp-open.py 为手工启动入口，默认日常 home/profile、9229 loopback、已运行无 CDP 拒绝、已有注入器复用；没有常驻开机服务或替换更新源。test/personal-cdp-open_test.py 覆盖七个进程/端口/home 分支，通用 Check 加入执行。入口只调用安装版注入器，不重新实现 CDP 协议。
+
+最终发布 SHA 存在安装 build-provenance/备份 receipt 和本机 `.local-evidence/cdp-handoff-retry-20260907/MANIFEST.json`，文档不嵌自身提交 SHA。发布前必须独立审核、PR CI、真实日常 UI 与同库验收；CI 和端口监听不替代实机验收。默认入口对未来新增官方参数采取拒绝策略，出现变更先核对来源和日常身份再修改规则。
+
+以下为之前阶段的维护记录；后续不沿用旧的“日常未部署”状态。
+
 写入仓库：https://github.com/Alex-ghost599/dashi-taskboard
 只读上游：https://github.com/chuspeeism/dashi-taskboard
 
