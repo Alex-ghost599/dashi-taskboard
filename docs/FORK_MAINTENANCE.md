@@ -28,3 +28,5 @@ origin fetch 为 fork HTTPS，push 为 `git@github.com:Alex-ghost599/dashi-taskb
 ## 个人补丁与已接受行为（2026-09-07）
 - Issue #5：CDP 目标只认可信 app 主页面；凭证写入前校验，导航撤权，通知同窗口/同源，打包携带信任策略模块。后续上游合入需保留此边界及负向测试，禁止恢复标题回退。
 - 用户确认保留自动 AI 项目总结和 Markdown/头像外链加载；它们是已接受的数据处理/网络行为，不按恶意后门判定，也不因安全审计擅自关闭。自动认领和上游程序替换更新仍关闭。
+
+- Issue #7：个人App持久私有凭据与受限根入口；CLI/CDP共享唯一服务。external-service是仅附着模式，禁止生命周期接管、版本/HMAC降级、通用runtime写入；停止/失败须撤销本次注入而不停止已有Codex或App。
