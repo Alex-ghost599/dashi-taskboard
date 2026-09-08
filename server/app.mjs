@@ -3519,6 +3519,15 @@ export function createTaskboardServer(options = {}) {
     }
   });
 
+  // Browsers can preconnect without sending an HTTP request. server.close()
+  // stops listening but waits indefinitely for these accepted sockets.
+  const preconnections = new Set();
+  server.on("connection", (socket) => {
+    preconnections.add(socket);
+    socket.once("close", () => preconnections.delete(socket));
+  });
+  server.on("request", (request) => preconnections.delete(request.socket));
+  server.on("upgrade", (request) => preconnections.delete(request.socket));
   let listening = false;
   return {
     database,
@@ -3558,7 +3567,14 @@ export function createTaskboardServer(options = {}) {
       cloudRealtimeServer.close();
       const serverClosed = listening
         ? new Promise((resolve, reject) => {
-            server.close((error) => error ? reject(error) : resolve());
+            const deadline = setTimeout(() => {
+              for (const socket of preconnections) socket.destroy();
+            }, 2_000);
+            deadline.unref();
+            server.close((error) => {
+              clearTimeout(deadline);
+              error ? reject(error) : resolve();
+            });
           })
         : Promise.resolve();
       events.close();
