@@ -1,3 +1,5 @@
+> 当前开发总入口：[个人开发台账](DEVELOPMENT_STATUS.md)。2026-09-08本轮仅文档治理，安装源码仍为a1391b1；下文早期阶段叙述不覆盖台账当前状态。自动化改造与Obsidian联动尚未实现，操作前核实相应验收。
+
 # 个人版本地部署与恢复
 
 ## 当前日常入口与恢复（2026-09-07）
@@ -59,7 +61,6 @@ python3 scripts/personal-install.py
 ```sh
 open '/Users/alex/Applications/Dashi Taskboard Personal.app'
 # 或在 Finder 双击；关闭窗口/在该 App 内 Cmd+Q 会停止其自有服务
-curl --fail http://127.0.0.1:47823/health
 '/Users/alex/Documents/ChatGPT/dashi-taskboard/scripts/personal-taskctl' issue list --json
 tail -f '/Users/alex/Library/Logs/Dashi Taskboard Personal/server.log'
 ```
@@ -78,30 +79,30 @@ App 预占 127.0.0.1:47823 并把 socket FD 传给 Node；端口被占用则启�
 ## 更新、自动认领与 Codex
 个人入口不注册 updater/autostart/Skill 安装插件，不进入上游 main，不检查、下载或安装上游更新；personal 配置 updater endpoints 为空。策略是编译入口约束，不依赖容易重置的 UI 开关，重启后仍相同。fork 自动更新链未验收，保持关闭。
 
-自动认领首次为 Paused/off，测试项目没有设备工作区，控件不可用；未注册任何真实认领 automation、未发模型请求。不要导入 Obsidian/驾驶舱任务或以安装授权执行任务。
+自动认领曾由用户开启并实际产生scheduled会话，最后一次现场检查已再次双层暂停；暂停重新变为ACTIVE的来源尚未归因，参见台账BUG-01。不得为健康检查开启自动执行。Obsidian联动为待开发需求，本轮不导入。
 
-独立 App 不依赖 Codex。可在 Codex 原生浏览面板打开同一 loopback URL（本任务已真实读取卡片/评论）；无需 CDP、注入守护进程或重启 Codex。`open_in_codex` 曾仅回 queued，不能凭该回执验收；本次通过 CUA 的实际 Codex In-app Browser 页面读回。当前没有 sidebar 注入与会话定位验收；未运行上游 injector，未开调试端口。入口失效时先启动个人 App，再重载原生浏览页。未来若需要 CDP，必须独立 profile/端口/进程归属和新的具体验收，不能对现有 Codex 做启动参数改造。
+独立 App 不依赖 Codex，可用原生浏览面板打开同一loopback URL。日常CDP侧栏及绑定会话定位已在2026-09-07实机验收；当前启动方式见本页日常入口。入口失效先检查个人App和注入器，不据旧接力记录重复重启Codex。
 
 ## CDP 生命周期与放行边界（2026-09-07 补充）
 `--watch` 注入器是常驻进程，约每两秒检查服务/目标并发心跳，页面加载时重装桥接；非 watch 也会注册新文档脚本，不能视为只检查一次就永远安全。可信目标限定 `app://-` 主页面，脚本执行前及桥接安装时再检查；导航和上下文销毁撤销旧权限，外部网页即使标题为 Codex 也被拒绝。既有随机 token/capability、loopback CDP WebSocket 校验及看板 HTML HMAC 保留。若未来官方页面来源改变，应检查版本和实际 target 后调整允许项，禁止退回标题匹配。
 
-本轮仅源码/模拟边界验证，尚未开启日常 Codex CDP、未安装常驻注入器。用户已明确授权后续先完成隔离开发验证，再由延迟启动的 `gpt-6-astra` / `medium` CLI 在确认无运行任务后重启日常 Codex并验收；这项具体授权替代上文“一律不能改造现有实例”的限制，其余官方包/内部数据库/共享环境限制保留。CLI 尚未派发；不能直接运行上游默认启动命令，它可能启动另一套服务/数据库。
+历史接力已完成：用户授权的延迟CLI在空闲确认后启用日常loopback CDP并验收。本轮不再派发重启CLI。未来若已有Codex未开启CDP，日常入口会拒绝；重新变更启动参数需要当时具体的空闲确认，历史一次授权不用于任意后续重启。
 
 AI 自动总结和外链图片按用户明确需求保留；总结可向配置的模型服务发送项目/任务元数据，图片请求可让图片站记录出口 IP 和 URL。它们与自动认领分别控制，不把 loopback 监听等同于没有出站请求。
 
-## 个人 CDP 入口（Issue #7 候选，尚待实机验收）
+## 个人 CDP 入口（已安装，本地实机验收）
 新个人服务首次启动在数据目录生成 `personal-service.json`（当前用户所有、0600；token和HMAC secret），后续复用。CLI/注入器只读取；缺失、符号链接或权限不安全时失败，不替旧App生成不匹配凭据。备份和恢复必须连同该文件；不要公开或提交其内容。旧浏览URL仍可打开，精确GET根路径在loopback来源检查后无缓存跳转到令牌路径。原无挑战curl /health在此模式返回401；以CLI读取与注入器带挑战健康检查为准。
 
 安装后CLI仍用 `scripts/personal-taskctl`，它调用App内包装器读取私有配置。已有官方Codex用loopback调试端口启动后，可使用App内Node运行 `Contents/Resources/app/scripts/personal-cdp.mjs --port 9229`；当前源码测试可用同名仓库脚本。它先用lsof/ps检查端口归属，使用同一47823服务；服务未就绪就报错，不启动第二套数据库。每端口私有lock记录wrapper PID；停止该PID会只停止注入子进程，移除本次入口及新文档脚本并恢复CSP，保持Codex/App进程。异常遗留锁仅在记录PID不存在时回收；不按名字批量kill。
 
-不自动开启或重启Codex；日常参数切换留给已授权的延迟CLI，必须先有隔离真实UI和独立review证据、再可靠确认无运行任务。没有开机自启或共享Skill/PATH修改。后台日志应写用户日志目录私有文件，因为注入诊断可能包含带令牌的页面URL。外接模式不拥有Node子进程IPC，远端host桥接不算已验收；本地看板、CLI、已有会话定位分别验收。
+注入器不自动开启或重启Codex；日常启动入口可在无实例时启动，已有无CDP实例时拒绝。历史参数切换已完成，不复用旧接力重启。没有开机自启或共享Skill/PATH修改。后台日志应写用户日志目录私有文件，因为注入诊断可能包含带令牌的页面URL。外接模式不拥有Node子进程IPC，远端host桥接不算已验收；本地看板、CLI、已有会话定位分别验收。
 
 ### 个人 CDP 入口与回滚
 安装包内 Node 执行 `Contents/Resources/app/scripts/personal-cdp.mjs --port <已开启的本机调试端口>`；先启动个人 App。入口校验端口仅 loopback、监听者属于同一官方 Codex 进程家族（允许继承调试 socket 的子进程），不自行启动/终止 Codex，不再另建服务。按 Ctrl-C 或只向已记录 watcher PID 发 SIGTERM 会撤销注入和注册脚本，并恢复 CSP。不要批量 kill Codex。重新启动 watcher 可再次注入；重复 watcher 会被锁拒绝。
 
 隔离验证使用独立 Electron profile 和 CODEX_HOME，仅复制当前登录凭据到私有 0600 文件以验证相同账号；测试结束删除这份自建凭据副本，保留测试历史与 profile。正式数据和持久化个人服务凭据均在 checkout 外。清洁构建 worktree 复用现有依赖时，本仓库 `.git/info/exclude` 增补 `/node_modules` 和 `/src-tauri/target`，原内容备份在 `.local-evidence/git-info-exclude-before-cdp.txt`；只恢复本次增补行，不覆盖后来的配置。
 
-2026-09-07 隔离验收已验证嵌入 UI 写入测试评论/状态并由安装 CLI 读回、停止 watcher 不影响 Codex/服务、刷新后无残留入口。日常实例部署须由独立 CLI 在本轮结束且核实无运行任务后执行，180 秒延时本身不构成空闲证明。日常常用启动入口和最终安装 commit 由该阶段验收后补录。
+2026-09-07 隔离验收已验证嵌入 UI 写入测试评论/状态并由安装 CLI 读回、停止 watcher 不影响 Codex/服务、刷新后无残留入口。后续日常实例接力也已完成，证据见台账及历史记录。任何未来延时本身仍不构成空闲证明；当前安装源码a1391b1，使用本页日常入口。
 
 ## 个人自动认领 CLI 修复（2026-09-08）
 个人 CDP 启动器通过 `CODEX_TASKBOARD_PERSONAL_SERVICE=1` 选择 `scripts/personal-taskctl.mjs`，scheduled 命令只保存可执行路径，凭据在执行时从个人数据目录读取。默认上游 CLI/runtime-file 路径不变。已有 scheduled 需将原始 `cli/taskctl.mjs` 路径替换为个人包装器，保留其他字段和 PAUSED 状态；仅更新 App 不会重写已保存的 prompt。

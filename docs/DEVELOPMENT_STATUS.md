@@ -1,76 +1,123 @@
-# 开发与部署状态
+# 个人开发台账
 
-## 当前日常 CDP 验收（2026-09-07，AGT-20260907-014）
+更新日期：2026-09-08。负责 Agent：Codex。治理任务：AGT-20260908-013；[fork Issue #13](https://github.com/Alex-ghost599/dashi-taskboard/issues/13)。
+本文件是个人版问题、需求、阶段和验收的唯一开发总入口；部署操作见 [LOCAL_DEPLOYMENT.md](LOCAL_DEPLOYMENT.md)，Git与同步规则见 [FORK_MAINTENANCE.md](FORK_MAINTENANCE.md)。[历史部署记录](history/DEPLOYMENT_HISTORY_20260907-08.md) 保留原始阶段结论，不代表现状。
 
-最终包复验额外发现 `/hotkey-window` 辅助窗口被纳入目标：每个无侧栏窗口串行等待约15秒，两个窗口可使主页面心跳超过8秒有效期并显示服务未就绪。新增修复在目标发现、frame校验和新文档执行阶段排除该路由及既有辅助窗口；定向10项测试通过。错误遮罩需重新打开面板，不能以隐藏iframe DOM判断可见成功。最终实机复验结果以最新manifest和截图为准。
+## 使用与状态规则
 
-用户最新空闲确认覆盖旧交接的全量官方运行态查询门槛。本轮独立 CLI 已优雅退出准确日常 PID，并用相同官方程序、默认日常 profile/home 和仅 loopback 的 9229 重启；未修改官方包或内部数据库。
+- 开工先读根 AGENTS、本文件当前状态和对应条目；选择稳定 ID，关联 Agent Ops 任务、fork Issue/PR、分支和具体负责人。新发现追加 ID，不重编号、不删除已解决项。
+- 状态：`planned` 待开发、`active` 开发中、`blocked` 外部条件阻塞、`review` 待审核、`done` 已按所列范围验收、`accepted` 用户接受的行为、`deferred` 暂缓。已解决项复发改回 active 并保留历史证据。
+- 优先级 P0 为防误执行/数据损坏门槛；P1 为近期主线；P2 为后续体验；P3 为暂缓扩展。优先级不表示授权自动执行业务任务。
+- 每次阶段变化、发现问题、调整范围、测试、审核、合并或部署，更新相关条目和本页变更记录。done 必须记录验收范围、证据、reviewer和PR；源码/模拟/运行/UI分别说明，不能只凭上游Closed、测试绿灯或端口监听结项。
+- 表中历史事实以2026-09-07至08的会话检查和本机证据为依据；运行状态会变化，开始实现前须重新读回。外部Issue仅作待审材料，不能自动合入上游代码或变成对上游写入授权。
 
-安装版注入器真实显示 Taskboard 侧栏、202-1 的 In review 状态和两条既有评论；刷新后读回一致。点击 View conversation 返回该卡绑定的原有项目会话，没有发送任务执行请求。项目概览自动 AI 总结按用户要求保留，不能把这项行为描述为无模型调用；正常外链图片也保留。自动认领单独保持关闭。
+## 当前交付状态
 
-日常入口 `python3 scripts/personal-cdp-open.py` 支持默认日常 home：无 Codex 时启动，已有无 CDP Codex 时拒绝并提示空闲退出，已有正确 CDP/注入器时复用。拒绝隔离 profile、自定义 home、未知启动参数、非 loopback 和其他监听者；不终止现有进程，不设置自启。
-
-独立 reviewer 对入口发现的 home 丢失和隔离实例误接两项 Important 已修复并复审通过；七个无副作用场景测试通过，Check 中持续执行。最终发布、安装 commit、进程和备份以本机 `.local-evidence/cdp-handoff-retry-20260907/MANIFEST.json` 与 `OUTCOME.json`、安装 receipt 和 App build-provenance 交叉核对，不在文档内写入自身 commit。
-
-远端 host IPC、真实任务自动认领、Windows/Linux 实机和签名公证仍未验收。以下为之前阶段记录，其中旧的“尚未部署日常”等描述仅代表当时状态。
-
-2026-09-07，首次 Mac 个人源码安装验收已执行；最终 PR/发布晋级及重建结果以安装 provenance 与本地验收清单读回为准。
-
-## 源码与工作项
-- fork：Alex-ghost599/dashi-taskboard；初始 main 677b54451db707ae6132486b6593b7be11e4ee09。
-- 稳定产品基线：v1.1.21 / 1a807be8d4114b82f3cecc61cddaebdba6df9c60。同期最新 Beta/main：v1.1.22-beta.6 / bd264e7ff3402785f1e8b0bb789106358352707b，没有纳入该 Beta。
-- 基础 Issue #1、PR #2，squash a99cf4cc64649e2aae376ae06a65ce43f9540f05；foundation_review 独立审核 Pass。
-- 安装 Issue #3、PR #4、chore--personal-desktop；最终合并状态从 fork PR 读取。PR base 仅 develop，main 只在验收后 fast-forward，保留所有任务分支。
-
-## 实际验收
-| 检查 | 结果/范围 |
+| 对象 | 已知状态与证据范围 |
 |---|---|
-| npm ci | 成功，395 packages，audit 0 vulnerabilities |
-| 构建前基线 | typecheck、build:web 通过；Node 372 pass/1 skipped/0 fail，组件 9 pass |
-| 变更后后端 | server.test.mjs 30/30 pass |
-| 原生构建 | 现有 Rust 1.95、arm64 Tauri 构建成功，bundled Node 22.23.2；ad-hoc 签名和安装后验证通过 |
-| 独立 UI | 真实创建项目“安装验收测试-20260907”、卡片 202-1，添加评论，todo→in_review，刷新后保留 |
-| Finder/App | 从 Finder 打开安装版，真实显示同一卡片、评论、状态；退出重启后 CLI 数据一致 |
-| 监听/清理 | 仅 127.0.0.1:47823；修正退出无界等待后自有 App/Node 均消失，无残留监听；原 Codex PID 82362 保持 |
-| 数据恢复 | 隔离 47824 服务读取恢复副本，CLI 与正式卡片一致，SQLite integrity_check=ok，评论保留；隔离服务已停止 |
-| 自动认领 | 浏览器和重启桌面均 Paused/off，控件不可用，无模型调用/真实任务执行 |
-| 更新策略 | 个人入口不注册 updater，无上游替换路径；策略编译固定，重启后仍个人入口 |
-| Codex | Codex In-app Browser 实际显示同一服务/卡片；无 CDP/sidebar 注入和会话定位验收 |
-| 共享写入 | 无共享 Skill、PATH、shell、官方 App/数据库或开机自启修改；仅仓库启动动作改为个人 App |
+| 仓库 | 个人fork `Alex-ghost599/dashi-taskboard`，唯一写入目标；上游 `chuspeeism/dashi-taskboard` 只读 |
+| 源码基线 | 上游稳定 v1.1.21 / `1a807be8d4114b82f3cecc61cddaebdba6df9c60`；此前比较的 beta.6/main `bd264e7ff3402785f1e8b0bb789106358352707b` 未合入；这些是日期快照，不表示未来最新版 |
+| 正式程序 | 最近安装源码 `a1391b1b5e5c1432e409b53512cdca81e52a8890`，fork PR #12；本轮仅文档，develop文档提交前进不要求重装同功能App |
+| 独立看板/CDP | 独立App、CLI同库、卡片评论/状态持久化和隔离恢复已验收；日常CDP侧栏及绑定会话定位已有实机证据。远端host与真实业务自动执行未验收 |
+| 自动认领 | CLI入口已修复，架构仍是旧机制；最后一次现场检查codex项目主机开关false、scheduled PAUSED。曾再次出现ACTIVE，来源未归因，不能保证永久暂停 |
+| 数据与更新 | checkout外单一正式数据；个人入口不注册上游程序替换更新器。保留用户需要的AI项目总结和正常外链图片 |
+| 本轮范围 | 建立开发依据；不启动导入、双向同步、10秒轮询或付费任务，不修改其他Agent共享指令 |
 
-证据位于 checkout `.local-evidence/`：baseline-*.log、personal-server-test.log、native-*.png/ax.txt、native-restart-cli.json、shutdown-validation.json、restore-validation.json、install-*.json、codex-browser.png。精确构建源码和时间在安装 App `Contents/Resources/build-provenance.json`；安装收据在用户 Application Support 备份目录。
+PR #12与main复验CI均成功（main run `34176274000`，本轮读回）；只代表检查层通过。
 
-## 审核与已处理问题
-- foundation_review 独立 reviewer：基础 c2f2f37 Pass。
-- 部署首轮发现 personal 默认 feature 对 Windows 不适用；已限定 Mac，并改为 personal-build.sh 显式启用，保留原平台 CI，添加 personal cargo check。e4270aa 增量静态审核 Pass，无 Critical/Important。
-- 现场网络：Git OAuth 缺 workflow scope，复用已合法认证同账号的现有 SSH；没有增加 scope。Cargo HTTP/2 错误使用本次 HTTP/1 配置解决。
-- 初次未签名和 Documents 的 FinderInfo 使签名失败，改为缓存区无元数据副本 ad-hoc 签名。一次构建中编辑运行脚本导致失败，随后使用固定提交完整重跑成功，失败产物不用于最终发布。
-- 首次 Cmd+Q 后监听停止但 Node 残留，具体异步阻塞点未定位；owned Child 增加 5 秒退出期限后真实退出/重启通过。
+安装provenance、`.local-evidence/automation-cli/final-validation.json`、CDP的 `.local-evidence/cdp-handoff-retry-20260907/` 与历史文档提供本机追溯。凭据、个人数据及本机证据不提交Git。日常绝对路径、备份和恢复命令以部署文档为准。
 
-## 保留限制
-没有上游云部署、远端发布或 updater 链验收；GitHub 基础 PR 未产生 Check runs，不能声称 CI 通过。最终远端 Check 状态另行记录，Mac 本地构建/UI 是本次主要验收。上游未用 launcher 代码产生 dead-code warnings；网页大 chunk 提示仍保留。不把新会话/侧边栏注入、Windows/Linux 运行、签名公证或付费模型认领视为已完成。启动握手无超时、App 被强杀的孤儿恢复仍依赖文档人工诊断，后续出现实际问题再处理。
+## 本地问题与已完成项
 
-最终独立 foundation_review（00e39c8 文档 / e4270aa 安装）：Pass，无 Critical/Important；实时检查签名、provenance、唯一 loopback、自有进程与原 Codex 保留，并查看真实截图。合并后仍必须重建最终 commit，不能以该 review 提前证明来源一致。完整 AX 补充为 codex-browser-full.ax.txt/native-current-full.ax.txt；增量 AX 需配截图，不单独作为完整UI证据。
+| ID | 优先级/状态 | 事实、影响及下一步验收 |
+|---|---|---|
+| FIX-01 | P1 done | fork治理、稳定基线、loopback源码App、同库CLI和回滚基础完成；fork #1/#2、#3/#4，foundation_review；初次UI/重启/隔离恢复证据见历史文档 |
+| FIX-02 | P0 done | CDP曾接受标题Codex及导航期间旧上下文，可能错误下发令牌；已加真实来源、导航撤权和RPC校验，fork #5/#6、cdp_trust_review。后续原生兼容需保留这些负向测试；安全扫描覆盖有限，不承诺绝无后门 |
+| FIX-03 | P1 done | 个人持久凭据、仅附着注入、原生preload合成回复兼容、日常启动入口；fork #7/#8/#9，personal_cdp_review等独立复审与实机侧栏/会话定位证据。不得修改官方包/数据库 |
+| FIX-04 | P1 done | hotkey辅助窗口串行等待使心跳失效；fork PR #10排除辅助路由，10项定向回归及实机复验。此修复不能解释所有UI刷新 |
+| FIX-05 | P1 done | scheduled原始CLI访问个人服务返回404；fork Issue #11 / PR #12切换个人凭据包装器，16项测试、automation_cli_review通过，安装a1391b1后查询成功。未改自动化流程 |
+| BUG-01 | P0 planned | 暂停后曾再出现host enabled及scheduled ACTIVE，原因未归因；增加状态写入来源/时间/因果记录，重启与UI开关测试，暂停应阻止后续派发；已有运行须单独识别处理 |
+| BUG-02 | P0 planned | todo中有hold、禁止执行或依赖未满足任务仍周期启动模型；已观测重复读卡/Skill/写记忆及空队列会话。没有证明这些会话执行了业务修改；需本地候选门禁和去重，参见AUTO-01/02 |
+| BUG-03 | P1 planned | 空todo后主机关闭enabledByUser并停止timer；新todo不会恢复；用户希望持续待命。与显式暂停及额度等待区分，见AUTO-01 |
+| BUG-04 | P0 planned | 历史threadId与完整执行绑定混用，list_threads前50条遗漏可能误判blocked；上游#369虽关闭，本地prompt仍存在相应逻辑。来源会话不能自动升级执行所有权；见AUTO-03、OBS-01 |
+| BUG-05 | P1 planned | 用户观察静止UI重加载（DAS-7）；需记录可见现象、导航/iframe/心跳/进程事件时间线，区分项目刷新、注入恢复和外部CLI操作；尚未定位全部根因 |
+| BUG-06 | P1 planned | graceful退出曾残留Node，初次5秒期限修复后安装升级仍需顺序清理自有服务；启动握手超时、强杀后孤儿恢复未完整验收。测试不得终止日常Codex |
+| BUG-07 | P2 planned | checkout有未知`* 2.*`副本，会被迁移测试读取而重复列失败；来源未核实，保留原文件，用干净worktree验证；清理需先核实来源和备份 |
+| BUG-08 | P2 planned | 项目空白/无卡片可能为项目筛选、路径归属或导入未执行；此前截图不足以证明数据丢失。对照项目ID、API卡片数、UI筛选，关联上游#188/#381 |
+| LIMIT-01 | P2 deferred | 远端host IPC、跨机执行路由、Windows/Linux实机、签名公证、fork更新发布链未验收；不沿用上游关闭状态作为本机证明 |
+| LIMIT-02 | P2 accepted | AI概览会向配置模型发送项目摘要；用户明确保留。外链图片请求暴露访问IP/时间/URL标记属已接受行为；不等于发送整库任务 |
+| LIMIT-03 | P1 accepted | 继续禁上游自动替换、共享Skill/PATH/shell无必要写入、官方App/内部DB修改、无授权自启。当前个人CLI已可访问同一服务 |
 
-## CDP 信任边界修复（2026-09-07，Issue #5）
-- 用户保留项目概览自动 AI 总结：调用其配置的 Codex 模型是所需行为，自动认领仍关闭；保留正常 Markdown 外链图片/头像加载，接受其访问记录特性。安全审计不是“绝无后门”证明（47/244 核心文件完整覆盖）。
-- `fix--cdp-target-trust` 移除标题 Codex 的目标回退，只接受 `app://-` 主页面；排除辅助窗口。新文档脚本、隔离桥接和后续 RPC 在写入凭证/参数前用原生 Location 再次验证页面；导航/上下文销毁撤销旧权限，失信主页面恢复 CSP 并断连。通知通道也验证同窗口/同源，复用已有随机凭证及 HMAC，不新增账号或认证服务。
-- 修复前 injector 测试 12/12；修复后目标/桥接/CDP pipe/supervisor 定向测试 24/24。覆盖外部同标题页面、子 frame、实际执行来源与发现结果不一致、安装期间导航、旧上下文撤销及可信页面恢复。真实 Codex UI 与日常实例注入仍未验收，不能以模拟 CDP/VM 测试替代。
-- 当前正式 App 仍为 `94e30bc64b13eb89e0f339d427e2b967aed6e0d9`，本轮不替换安装版，不晋级 main；修复需独立 review 与 fork PR CI 后合入 develop。现有未跟踪 `* 2.*` 副本未改动；原目录全量测试因迁移工具读取未知副本重复添加列而 27 fail；只含跟踪源码与本轮文件的临时快照复验 379 pass / 1 skipped / 0 fail（随后新增两个清理测试，包含在定向 24/24 中）。副本未删除，不作为上游失败或本轮代码回归。
+## 自动化主线：用户目标与验收
 
-- 独立 reviewer `cdp_trust_review` 初审发现页面全局 URL 可伪造、在途 RPC 导航泄露两项 Important，均修复并增量复审通过（源码/模拟层）；实际 Electron 消息来源兼容性和 UI 仍需隔离验收。
+当前链路：本机检查 → Codex scheduled按周期唤醒模型 → 查todo/评论 → 未绑定卡在该自动会话内执行，完整绑定卡转达旧会话。界面模型设置影响该自动会话的执行模型。普通本机HTTP轮询不消耗模型token；scheduled空跑仍消耗token。当前没有“只判断、不执行”的独立本地调度层。
 
-## 个人服务 CDP 接入（Issue #7，开发中）
-个人入口准备启用持久 token/HMAC 私有文件，CLI 与 CDP 共用同一 App 服务；原 `GET /` 只允许 loopback 导航并跳转到令牌路径。`personal-cdp.mjs` 仅附着已开启的官方 Codex 调试端口，拒绝非 loopback/错误进程及重复实例；外接模式不启动服务或 Codex、不写通用 runtime，退出及失败注入撤销本次脚本/DOM/CSP。
+期望链路：本地持久待命 → 约10秒扫描合格todo → 固定任务ID和版本 → Spark独立判断/转达 → 精确绑定或新建专用执行会话 → 执行模型处理 → 回写状态与证据。
 
-定向测试 55/55（凭据重用/权限/链接拒绝、根入口负向测试、注入失败撤销、已有信任边界/服务测试）。独立 review 初审的版本不匹配、失败注入残留已修复，候选构建和真实UI待执行。正式版本仍94e30bc；后续安装回执与验收记录才代表真实切换。远端host IPC不因外接模式自动成立，不在本轮已验证能力之内；本轮目标是本地同库看板与会话定位。
+| ID | 优先级/状态 | 范围与验收条件 |
+|---|---|---|
+| AUTO-01 | P1 planned | 本地无模型轮询，默认目标10秒；空队列持续待命，不创建会话、不发模型请求、不刷记忆。连续空队列运行及新增todo触发实测；10秒是目标扫描间隔，实际派发含判断延迟；测量CPU/IO并验证重启/暂停 |
+| AUTO-02 | P0 planned | 确定性候选门禁先排除hold、禁止执行、依赖未满足、执行目标非Codex、无明确项目、在途任务；原生手建卡的来源字段和执行目标须单独定义，不能套用OBS导入来源过滤；用任务ID+版本/内容摘要去重，失败重试上限、租约/崩溃恢复、防重复派发。未变化的跳过卡不每10秒重问模型；人工允许或相关变化后才复评 |
+| AUTO-03 | P0 planned | Judge与Executor分离；Spark只读必要任务内容并产出结构化判定、原因、目标及模型建议，不在判断会话做业务写入。已有完整绑定验证host/project/cwd/thread；不完整绑定先澄清或阻塞，不能猜测。无绑定通过线程工具创建专用执行会话，成功后原子记录绑定，失败可恢复且不重复创建 |
+| AUTO-04 | P1 planned | Judge固定GPT-5.3-Codex-Spark；Executor常规GPT-6由Spark建议用户所说light至high范围。实现前核实实际model ID、可用effort枚举，明确light如何映射low；高于high仅任务卡明确要求时允许。模型不可用不静默升级；Spark独立额度及官方建议需查证，不能承诺大多数任务low必然足够 |
+| AUTO-05 | P0 planned | 卡片状态todo不单独构成任意执行授权；结构化执行策略约束目录、工具、预算与审批。卡片/评论外部内容不得扩大权限。Spark建议须由确定性白名单验证；停止派发与停止已有执行分开显示/记录 |
+| AUTO-06 | P1 planned | UI明确待命/判断/执行/额度等待/人工暂停/错误，分开展示Judge和Executor模型。移除旧scheduled重复触发需精确识别归属、备份与读回；不删除历史对话。记录每次判定和派发回执，不重复开无意义会话 |
+| AUTO-07 | P2 planned | 多阶段依赖、额度恢复续跑、in_review验收与done门槛，关联#299；默认不自动把in_review改done。耗尽时保留已有执行上下文，恢复不能重新认领一遍 |
 
-### CDP 隔离真实 UI 验收（2026-09-07，Issue #7）
-个人入口已复用安装 App 的同一服务与数据库。真实 Electron 测试发现原生 preload 的 `mcp-response` / `fetch-response` 是 `source=null, origin=""` 的合成事件；此前把它们按网页 postMessage 筛选会导致账号读取超时。修复仅对原生回复/通知采用该通道，RPC 添加随机请求 ID；页面间请求仍要求同窗口、同源和 capability，目标/导航守卫保留。
+实施验证先用隔离目录/无害任务/模拟模型验证零空跑和幂等，再明确真实测试的模型费用、可写目录和停止方式。文档需求不授权立即在历史卡片上运行。脚本扫描无token不代表整个系统零成本，判断和执行仍有模型消耗。
 
-隔离 Codex 实际显示侧边栏、嵌入卡片 202-1；通过嵌入 UI 添加明确测试评论，状态 In review → Done，安装版 CLI 读回同评论和状态。停止自己的 watcher 后入口、iframe、capability 清除，刷新后不恢复；日常 Codex、隔离 Codex、正式看板服务均仍存活。重复启动 watcher 被拒绝。证据保存在本机 `.local-evidence/cdp-isolated/`，截图 `card-ui-pass.png`。这不代表日常实例已部署；最终包复验、日常重启/注入、已有会话定位与最终发布仍待 CLI 接力。
+## Obsidian主线：同一逻辑任务的双向编辑
 
-## 2026-09-08 自动认领 CLI 入口修复（Issue #11）
-- 基线故障：scheduled 直接调用原始 CLI 返回 NOT_FOUND/Route not found；个人 CLI 查询同项目成功。
-- 修复：个人启动器显式选择凭据包装器；凭据不进入自动化 prompt。16 项针对性测试通过；独立审核无 Critical/Important。清洁构建产物生成的命令已真实查询同一服务（1 条 todo），prompt 无凭据。正式安装收据与双层暂停复验记录在本机任务 AGT-20260908-010。
-- 用户要求 codex 项目停止自动认领，双层暂停已读回。仅验证查询；不执行 COD-22 等历史卡片，不改变空队列策略。
+用户选择Obsidian任务记录作为权威源，Taskboard作为可编辑界面/索引；不要长期维护两份互不约束的权威状态。当前尚无此集成；已有项目会话导入是Agent整理出的卡片，不能声称已实现Obsidian导入。此前7天试导入已取消，本轮也不执行数据迁移。
+
+| ID | 优先级/状态 | 范围与验收条件 |
+|---|---|---|
+| OBS-01 | P1 planned | 定义稳定AGT身份、来源agent、执行agent、project/cwd/host、状态、证据、sourceSession与executionBinding字段映射。历史绑定可空，来源会话与执行绑定分开；未知/缺失agent不猜作Codex |
+| OBS-02 | P1 planned | 首批仅来源agent明确codex且项目可明确判定的任务；项目依据显式字段或可核实workspace映射，歧义/缺失跳过并列原因。提供只读预览、重复检测、字段差异与导入清单；历史时间范围和状态范围在实施时明确，不能沿用已取消的7天范围 |
+| OBS-03 | P0 planned | 明确权威Markdown文件及Taskboard派生索引写入协议；双方编辑同一任务，版本校验、原子写、冲突显式保留、防循环事件、离线恢复。并发修改、iCloud延迟、文件移动/删除、YAML异常、链接/附件均隔离测试；不以盲目最后写入覆盖冲突 |
+| OBS-04 | P1 planned | 盘点vault AGENTS、Agent Operating Protocol、任务模板、Registry/Base及相关全局AGENTS/sys prompt的实际路径与所有者，加入未来执行绑定记录规范。先提交变更清单与兼容迁移方案，独立审核；本轮只登记，不批量改共享提示词 |
+| OBS-05 | P0 planned | 只改Codex授权记录，保留其他Agent字段、历史证据/来源、原任务ID；验证双向字段回写、备份/隔离恢复、幂等重跑、不确定项目零导入。同步事件不直接构成任务执行指令 |
+| OBS-06 | P3 deferred | 稳定后再评估跨Agent统一管理；暂不导入或派发Claude/Claw/Hermes等任务。来源归属与当前执行者口径需兼容Agent Ops，不能因移交抹掉来源 |
+
+## 上游问题观察清单
+
+2026-09-08重新读取15条开放Issue。以下内容是报告/需求，除本地台账明确注明外未在当前Mac复现；Closed不表示个人版已解决。只允许上游读取和比较。
+
+| 上游 | 快照/关注点 | 本地处理 |
+|---|---|---|
+| [#365](https://github.com/chuspeeism/dashi-taskboard/issues/365) | Open；当前项目导入仅准备AI请求，缺确定性枚举/导入 | P1 planned；与OBS-02区分会话导入和Obsidian导入，需预览/去重/来源证据 |
+| [#299](https://github.com/chuspeeism/dashi-taskboard/issues/299) | Open；无人值守多阶段、额度恢复续跑 | AUTO-07 |
+| [#14](https://github.com/chuspeeism/dashi-taskboard/issues/14) | Open；一键立即执行，当前打开会话可能仅预填 | AUTO-03/06；明确派发成功和实际开始 |
+| [#199](https://github.com/chuspeeism/dashi-taskboard/issues/199) | Open；手动Codex会话自动建进行中卡 | P2 planned；防误导入/重复，先做身份绑定 |
+| [#364](https://github.com/chuspeeism/dashi-taskboard/issues/364) | Open；拆分任务Skill、模型分工 | P2 planned；在AUTO主线稳定后评估拆分粒度和上下文成本 |
+| [#228](https://github.com/chuspeeism/dashi-taskboard/issues/228)、[#33](https://github.com/chuspeeism/dashi-taskboard/issues/33) | Open；多平台会话追溯、Agent协议抽象 | OBS-06 deferred |
+| [#284](https://github.com/chuspeeism/dashi-taskboard/issues/284) | Open；嵌套项目、面包屑、多视图一致 | P2 planned；先保证OBS项目归属准确 |
+| [#381](https://github.com/chuspeeism/dashi-taskboard/issues/381)、[#188](https://github.com/chuspeeism/dashi-taskboard/issues/188) | Open；Windows改名/切项目后看板不可见 | BUG-08；Windows报告不能推断当前Mac数据丢失 |
+| [#322](https://github.com/chuspeeism/dashi-taskboard/issues/322)、[#88](https://github.com/chuspeeism/dashi-taskboard/issues/88) | Open；高DPI图标、可读性 | P2 planned；实际屏幕复现后排优先级 |
+| [#134](https://github.com/chuspeeism/dashi-taskboard/issues/134) | Open；新建表单默认属性保留 | P2 planned；区别表单偏好与任务数据丢失 |
+| [#187](https://github.com/chuspeeism/dashi-taskboard/issues/187) | Open；语音录入任务 | P3 deferred；草稿不得被todo扫描自动执行 |
+| [#140](https://github.com/chuspeeism/dashi-taskboard/issues/140) | Open；trellis联动 | P3 deferred |
+| [#369](https://github.com/chuspeeism/dashi-taskboard/issues/369) | Closed；legacy thread ID误阻塞 | BUG-04；本地仍有相关prompt路径，需按实际内容审核 |
+| [#23](https://github.com/chuspeeism/dashi-taskboard/issues/23)、[#24](https://github.com/chuspeeism/dashi-taskboard/issues/24)、[PR #45](https://github.com/chuspeeism/dashi-taskboard/pull/45) | Closed/Merged；关闭后继续派发、重复会话、无todo暂停 | BUG-01/02/03；PR45实际含6文件及回归测试，涉及prompt暂停、策略状态和UI只读查询；不能只读PR描述。后来的`5f52f64`才加入主机hasTodo直接关闭，不能混为同一次修复 |
+| [#256](https://github.com/chuspeeism/dashi-taskboard/issues/256)、[#295](https://github.com/chuspeeism/dashi-taskboard/issues/295) | Closed；远端执行机、项目/worktree切换超时 | LIMIT-01；上游称PR296/301/310修复，个人远端实机未验收 |
+| [#184](https://github.com/chuspeeism/dashi-taskboard/issues/184) | Closed；陈旧绑定妨碍认领 | AUTO-03恢复/所有权验收 |
+| [#111](https://github.com/chuspeeism/dashi-taskboard/issues/111)、[#106](https://github.com/chuspeeism/dashi-taskboard/issues/106) | Closed；CLI环境/端点发现 | FIX-05回归参考；原因不必与个人404一致 |
+| [#209](https://github.com/chuspeeism/dashi-taskboard/issues/209) | Closed；重复/旧Skill冲突 | LIMIT-03；继续不覆盖未知共享Skill |
+| [#100](https://github.com/chuspeeism/dashi-taskboard/issues/100)、[#99](https://github.com/chuspeeism/dashi-taskboard/issues/99) | Closed；恢复重启Codex、错误离线 | BUG-05/06；保持仅附着和实例所有权核验 |
+| [#67](https://github.com/chuspeeism/dashi-taskboard/issues/67) | Closed；模型菜单自行关闭 | BUG-05区别菜单重绘与整页重载 |
+| [#352](https://github.com/chuspeeism/dashi-taskboard/issues/352)、[#367](https://github.com/chuspeeism/dashi-taskboard/issues/367)、[#325](https://github.com/chuspeeism/dashi-taskboard/issues/325)、[#52](https://github.com/chuspeeism/dashi-taskboard/issues/52) | Closed；Windows重启循环/空终端、语言、自动认领或标签页异常 | P3 deferred；平台或版本回归观察 |
+| [#130](https://github.com/chuspeeism/dashi-taskboard/issues/130)、[#132](https://github.com/chuspeeism/dashi-taskboard/issues/132)、[#136](https://github.com/chuspeeism/dashi-taskboard/issues/136) | Closed；任务入队、评论续跑、依赖 | AUTO-02/07回归用例 |
+| [#11](https://github.com/chuspeeism/dashi-taskboard/issues/11)、[#5](https://github.com/chuspeeism/dashi-taskboard/issues/5)、[#54](https://github.com/chuspeeism/dashi-taskboard/issues/54) | Closed；项目删除、失败启动清理、token路径 | OBS-03/BUG-06/FIX-05回归用例；禁止直接删历史数据 |
+
+## 建议实施顺序与交付门槛
+
+1. P0止损：BUG-01/02/04、AUTO-02/05，明确暂停、授权、幂等和绑定；保留现有自动认领暂停。
+2. 本地调度：AUTO-01，先证明空队列长期待命且零模型请求，再实现AUTO-03/04/06独立判断与执行；专用测试项目验收后才投入日常。
+3. Obsidian契约：OBS-01/04盘点字段与指导文档；OBS-02只读导入预览，OBS-03/05隔离双向同步、冲突与恢复；日常迁移范围单独固定清单。
+4. 主线稳定后评估AUTO-07、确定性会话导入、项目导航和UI体验；其他Agent/远端/平台扩展保持暂缓。
+
+自动化与Obsidian接口可共享身份契约，但不能让未验收的同步触发真实执行。每项实施从最新develop短期分支开始，Issue/PR仅fork、base develop、独立validation-only审核；真实部署另做安装来源与UI验收。本轮完成只代表台账和规则已交付，不代表表中planned功能完成。
+
+## 变更记录
+
+- 2026-09-08 / AGT-20260908-013：整合历史故障、15项开放上游Issue及相关关闭项；登记自动化与Obsidian需求，保留历史快照；本轮无运行程序/自动化/导入行为变更。独立reviewer `roadmap_review` 初审发现旧健康检查和CDP历史措辞可能误导操作，已修正，复审Critical 0 / Important 0；29个ID唯一、历史原文保留及本地链接检查通过。fork Issue #13；合并记录由关联PR提供，避免文档嵌入自身提交SHA。
