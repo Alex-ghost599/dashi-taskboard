@@ -69,3 +69,8 @@
 个人入口已复用安装 App 的同一服务与数据库。真实 Electron 测试发现原生 preload 的 `mcp-response` / `fetch-response` 是 `source=null, origin=""` 的合成事件；此前把它们按网页 postMessage 筛选会导致账号读取超时。修复仅对原生回复/通知采用该通道，RPC 添加随机请求 ID；页面间请求仍要求同窗口、同源和 capability，目标/导航守卫保留。
 
 隔离 Codex 实际显示侧边栏、嵌入卡片 202-1；通过嵌入 UI 添加明确测试评论，状态 In review → Done，安装版 CLI 读回同评论和状态。停止自己的 watcher 后入口、iframe、capability 清除，刷新后不恢复；日常 Codex、隔离 Codex、正式看板服务均仍存活。重复启动 watcher 被拒绝。证据保存在本机 `.local-evidence/cdp-isolated/`，截图 `card-ui-pass.png`。这不代表日常实例已部署；最终包复验、日常重启/注入、已有会话定位与最终发布仍待 CLI 接力。
+
+## 2026-09-08 自动认领 CLI 入口修复（Issue #11）
+- 基线故障：scheduled 直接调用原始 CLI 返回 NOT_FOUND/Route not found；个人 CLI 查询同项目成功。
+- 修复：个人启动器显式选择凭据包装器；凭据不进入自动化 prompt。16 项针对性测试通过；独立审核及部署验收进行中。
+- 用户要求 codex 项目停止自动认领，双层暂停已读回。仅验证查询；不执行 COD-22 等历史卡片，不改变空队列策略。

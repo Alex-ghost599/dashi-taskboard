@@ -102,3 +102,7 @@ AI 自动总结和外链图片按用户明确需求保留；总结可向配置�
 隔离验证使用独立 Electron profile 和 CODEX_HOME，仅复制当前登录凭据到私有 0600 文件以验证相同账号；测试结束删除这份自建凭据副本，保留测试历史与 profile。正式数据和持久化个人服务凭据均在 checkout 外。清洁构建 worktree 复用现有依赖时，本仓库 `.git/info/exclude` 增补 `/node_modules` 和 `/src-tauri/target`，原内容备份在 `.local-evidence/git-info-exclude-before-cdp.txt`；只恢复本次增补行，不覆盖后来的配置。
 
 2026-09-07 隔离验收已验证嵌入 UI 写入测试评论/状态并由安装 CLI 读回、停止 watcher 不影响 Codex/服务、刷新后无残留入口。日常实例部署须由独立 CLI 在本轮结束且核实无运行任务后执行，180 秒延时本身不构成空闲证明。日常常用启动入口和最终安装 commit 由该阶段验收后补录。
+
+## 个人自动认领 CLI 修复（2026-09-08）
+个人 CDP 启动器通过 `CODEX_TASKBOARD_PERSONAL_SERVICE=1` 选择 `scripts/personal-taskctl.mjs`，scheduled 命令只保存可执行路径，凭据在执行时从个人数据目录读取。默认上游 CLI/runtime-file 路径不变。已有 scheduled 需将原始 `cli/taskctl.mjs` 路径替换为个人包装器，保留其他字段和 PAUSED 状态；仅更新 App 不会重写已保存的 prompt。
+本次 codex 项目由用户要求暂停：主机 enabledByUser=false、对应 scheduled=PAUSED；不得为验证恢复自动执行。使用 scheduled 中的 CLI 命令仅执行 issue list 验证。接口可用不等于业务执行验收。更新 App/注入器时只停止个人服务，保持官方 Codex 及会话运行。安装前备份 App、数据及 automation.toml，恢复时保持调度暂停。
