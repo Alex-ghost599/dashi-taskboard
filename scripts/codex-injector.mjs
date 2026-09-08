@@ -1768,7 +1768,8 @@ async function applyTaskboardAutomationPolicy(
   let listed = null;
   let currentItem;
   if (!explicit && request.enabledByUser) {
-    listed = await reconcileTaskboardAutomation({ ...request, operation: "list" }, rpc);
+    listed = await reconcileTaskboardAutomation({ ...request, operation: "list" }, rpc, { stillCurrent });
+    if (!stillCurrent()) return { stale: true };
     const items = Array.isArray(listed.items) ? listed.items : [];
     currentItem = (
       request.automationId
@@ -1785,9 +1786,13 @@ async function applyTaskboardAutomationPolicy(
   });
   const result = operation === "list"
     ? { item: currentItem, items: listed.items }
-    : await reconcileTaskboardAutomation({ ...request, operation }, rpc);
+    : await reconcileTaskboardAutomation({ ...request, operation }, rpc, { stillCurrent });
+  if (result?.stale) return result;
   if (result?.error === "not-found") {
     return { operation, hasTodo, ...(quota ? { quota } : {}) };
+  }
+  if (operation === "pause" && result?.item?.status !== "PAUSED") {
+    throw new Error("Codex did not confirm the scheduled pause");
   }
   return { ...result, operation, hasTodo, ...(quota ? { quota } : {}) };
 }
@@ -1813,7 +1818,7 @@ function storedAutomationPolicy(request) {
 
 function restoredAutomationPolicy(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const { nextRunAt, quota, ...stored } = value;
+  const { nextRunAt, quota, pausePending, policyChange, ...stored } = value;
   const request = parseTaskboardAutomationHostRequest({
     ...stored,
     id: "restored-policy",
@@ -1824,6 +1829,10 @@ function restoredAutomationPolicy(value) {
   return request
     ? {
       request,
+      pausePending: !request.enabledByUser && pausePending === true,
+      ...(policyChange && Number.isFinite(policyChange.at)
+        && ["user", "context", "empty-queue", "scheduled-paused"].includes(policyChange.source)
+        ? { policyChange: { at: policyChange.at, source: policyChange.source } } : {}),
       ...(quota ? { quota } : {}),
       ...(Number.isFinite(nextRunAt) ? { nextRunAt } : {}),
     }
@@ -1858,6 +1867,8 @@ function persistQuotaPolicies() {
       projectId,
       {
         ...storedAutomationPolicy(record.request),
+        pausePending: record.pausePending === true,
+        ...(record.policyChange ? { policyChange: record.policyChange } : {}),
         ...(record.quota ? { quota: record.quota } : {}),
         ...(Number.isFinite(record.nextRunAt) ? { nextRunAt: record.nextRunAt } : {}),
       },
@@ -1898,7 +1909,7 @@ function scheduleQuotaPolicyCheck(record, result) {
   const previous = quotaPolicyTimers.get(key);
   if (previous) clearTimeout(previous);
   quotaPolicyTimers.delete(key);
-  if (!request.enabledByUser) return;
+  if (!request.enabledByUser && !record.pausePending) return;
 
   const nextRunAt = Number(result.item?.nextRunAt);
   const nextRunDelay = Number.isFinite(nextRunAt) && nextRunAt > Date.now()
@@ -1948,11 +1959,14 @@ function enqueueQuotaPolicyMutation(record, rpc, { explicit = false } = {}) {
           remoteNextRunAt: current.nextRunAt,
         },
       );
-      if (result.stale) return result;
+      if (result.stale || quotaPolicyRecords.get(key) !== current) return { stale: true };
+      if (result.operation === "pause") current.pausePending = false;
       if (result.hasTodo === false && result.operation === "pause") {
+        current.policyChange = { at: Date.now(), source: "empty-queue" };
         current.version += 1;
         current.request = { ...current.request, enabledByUser: false };
       } else if (!explicit && result.operation === "list" && result.item?.status === "PAUSED") {
+        current.policyChange = { at: Date.now(), source: "scheduled-paused" };
         current.version += 1;
         current.request = { ...current.request, enabledByUser: false };
       }
@@ -1980,18 +1994,20 @@ function enqueueQuotaPolicyMutation(record, rpc, { explicit = false } = {}) {
   return tracked;
 }
 
-async function updateAndApplyQuotaPolicy(request, rpc) {
+async function updateAndApplyQuotaPolicy(request, rpc, source = "user") {
   await ensureQuotaPoliciesLoaded();
   const previous = quotaPolicyRecords.get(request.taskboardProjectId);
   const record = {
     version: (previous?.version ?? 0) + 1,
     request,
+    pausePending: !request.enabledByUser,
+    policyChange: { at: Date.now(), source },
     ...(request.quotaAware && previous?.quota ? { quota: previous.quota } : {}),
   };
   quotaPolicyRecords.set(request.taskboardProjectId, record);
   try {
     await persistQuotaPolicies();
-    const result = await enqueueQuotaPolicyMutation(record, rpc, { explicit: true });
+    const result = await enqueueQuotaPolicyMutation(record, rpc, { explicit: source === "user" });
     const current = quotaPolicyRecords.get(request.taskboardProjectId);
     return {
       ...result,
@@ -2000,6 +2016,11 @@ async function updateAndApplyQuotaPolicy(request, rpc) {
     };
   } catch (error) {
     if (quotaPolicyRecords.get(request.taskboardProjectId)?.version === record.version) {
+      // A failed pause must never restore an enabled intent. Retry its confirmation.
+      if (!request.enabledByUser) {
+        scheduleQuotaPolicyCheck(record, {});
+        throw error;
+      }
       if (previous) quotaPolicyRecords.set(request.taskboardProjectId, previous);
       else quotaPolicyRecords.delete(request.taskboardProjectId);
       await persistQuotaPolicies();
@@ -2028,7 +2049,7 @@ async function reconcileStoredAutomationPolicy(request, rpc) {
       intervalMinutes: record.request.intervalMinutes,
       model: record.request.model,
       reasoningEffort: record.request.reasoningEffort,
-    }, rpc);
+    }, rpc, "context");
   }
   const result = await enqueueQuotaPolicyMutation(record, rpc);
   const current = quotaPolicyRecords.get(projectId);
@@ -2062,8 +2083,14 @@ async function restoreQuotaPolicies(cdp) {
   const restoring = (async () => {
     await ensureQuotaPoliciesLoaded();
     for (const [projectId, record] of quotaPolicyRecords) {
-      if (record.request.enabledByUser) {
-        await enqueueCurrentQuotaPolicy(projectId);
+      if (record.request.enabledByUser || record.pausePending) {
+        try {
+          await enqueueCurrentQuotaPolicy(projectId);
+        } catch (error) {
+          if (!record.pausePending) throw error;
+          if (quotaPolicyRecords.get(projectId) === record) scheduleQuotaPolicyCheck(record, {});
+          console.error("Taskboard pause remains unconfirmed; confirmation will retry");
+        }
       }
     }
     restoredQuotaPolicyCdps.add(cdp);

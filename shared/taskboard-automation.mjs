@@ -184,9 +184,11 @@ export function taskboardAutomationPolicyOperation(request, {
   return "ensure-active";
 }
 
-export async function reconcileTaskboardAutomation(request, rpc) {
+export async function reconcileTaskboardAutomation(request, rpc, { stillCurrent = () => true } = {}) {
   const listed = await rpc("list-automations", {});
-  const items = Array.isArray(listed?.items) ? listed.items : [];
+  if (!stillCurrent()) return { stale: true };
+  if (!Array.isArray(listed?.items)) throw new Error("Codex returned an invalid automation list");
+  const items = listed.items;
   const name = buildTaskboardAutomationName(request);
   const matchingItems = items.filter((item) => item?.name === name);
 

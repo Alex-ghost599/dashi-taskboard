@@ -111,7 +111,7 @@ test("the CDP bridge exposes only the fixed Taskboard automation operations", ()
 test("passive automation policy keeps idle pauses and only resumes quota pauses", () => {
   assert.match(source, /taskboardAutomationPolicyOperation/);
   assert.match(source, /previousQuotaState: current\.quota\?\.state/);
-  assert.match(source, /enqueueQuotaPolicyMutation\(record, rpc, \{ explicit: true \}\)/);
+  assert.match(source, /enqueueQuotaPolicyMutation\(record, rpc, \{ explicit: source === "user" \}\)/);
   assert.match(
     source,
     /!explicit && result\.operation === "list" && result\.item\?\.status === "PAUSED"/,

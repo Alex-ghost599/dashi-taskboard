@@ -229,6 +229,7 @@ interface ProjectAutomationRecord {
   codexHostId: string;
   workspacePath: string;
   status: ProjectAutomationStatus;
+  pausePending?: boolean;
   enabledByUser: boolean;
   quotaAware: boolean;
   quota?: AutomationQuotaStatus;
@@ -464,6 +465,7 @@ function readProjectAutomations(): ProjectAutomations {
         workspacePath: candidate.workspacePath,
         status: candidate.status,
         enabledByUser,
+        pausePending: !enabledByUser && candidate.pausePending === true,
         quotaAware,
         ...(quota ? { quota } : {}),
         intervalMinutes: candidate.intervalMinutes ?? 5,
@@ -1275,31 +1277,39 @@ export function App() {
     projectId: string,
     record: ProjectAutomationRecord | null | undefined,
   ) => {
-    setProjectAutomations((current) => {
-      if (
-        record
-        && current[projectId]?.automationId === record.automationId
-        && current[projectId]?.codexProjectId === record.codexProjectId
-        && current[projectId]?.codexProjectKind === record.codexProjectKind
-        && current[projectId]?.codexHostId === record.codexHostId
-        && current[projectId]?.workspacePath === record.workspacePath
-        && current[projectId]?.status === record.status
-        && current[projectId]?.enabledByUser === record.enabledByUser
-        && current[projectId]?.quotaAware === record.quotaAware
-        && JSON.stringify(current[projectId]?.quota) === JSON.stringify(record.quota)
-        && current[projectId]?.intervalMinutes === record.intervalMinutes
-        && current[projectId]?.model === record.model
-        && current[projectId]?.reasoningEffort === record.reasoningEffort
-      ) {
-        return current;
-      }
-      const next = { ...current };
-      if (record) next[projectId] = record;
-      else delete next[projectId];
-      projectAutomationsRef.current = next;
+    const current = projectAutomationsRef.current;
+    if (record && queuedAutomationSavesRef.current.get(projectId)?.options.enabledByUser === false) {
+      record = { ...record, enabledByUser: false, pausePending: true };
+    }
+    const unchanged = Boolean(
+      record
+      && current[projectId]?.automationId === record.automationId
+      && current[projectId]?.codexProjectId === record.codexProjectId
+      && current[projectId]?.codexProjectKind === record.codexProjectKind
+      && current[projectId]?.codexHostId === record.codexHostId
+      && current[projectId]?.workspacePath === record.workspacePath
+      && current[projectId]?.status === record.status
+      && current[projectId]?.enabledByUser === record.enabledByUser
+      && current[projectId]?.pausePending === record.pausePending
+      && current[projectId]?.quotaAware === record.quotaAware
+      && JSON.stringify(current[projectId]?.quota) === JSON.stringify(record.quota)
+      && current[projectId]?.intervalMinutes === record.intervalMinutes
+      && current[projectId]?.model === record.model
+      && current[projectId]?.reasoningEffort === record.reasoningEffort
+    );
+    const next = { ...current };
+    if (record) next[projectId] = record;
+    else delete next[projectId];
+    projectAutomationsRef.current = next;
+    try {
       taskboardStorage.setItem(PROJECT_AUTOMATIONS_KEY, JSON.stringify(next));
-      return next;
-    });
+    } catch {
+      setAutomationError(textRef.current(
+        "无法保存本地自动化设置；仍会尝试同步主机，重载后请核实状态",
+        "Could not persist local automation settings; host sync will still be attempted. Recheck after reload.",
+      ));
+    }
+    if (!unchanged) setProjectAutomations(next);
   }, []);
 
   const sendAutomationRequest = useCallback((
@@ -1387,7 +1397,13 @@ export function App() {
           reasoningEffort: policy.reasoningEffort,
         });
       } catch (error) {
-        writeProjectAutomation(queuedSave.projectId, previousRecord);
+        if (!queuedSave.options.enabledByUser && previousRecord) {
+          writeProjectAutomation(queuedSave.projectId, {
+            ...previousRecord, enabledByUser: false, pausePending: true,
+          });
+        } else {
+          writeProjectAutomation(queuedSave.projectId, previousRecord);
+        }
         setAutomationError(error instanceof Error
           ? error.message
           : textRef.current("无法更新自动化", "Could not update automation."));
@@ -1428,8 +1444,8 @@ export function App() {
         };
       }
       const response = await sendAutomationRequest(
-        "list",
-        options,
+        stored?.pausePending ? "apply-policy" : "list",
+        stored?.pausePending ? { ...options, enabledByUser: false } : options,
         automationRequestContext,
         stored?.automationId,
       );
@@ -1466,6 +1482,7 @@ export function App() {
         if (stored) {
           writeProjectAutomation(projectId, {
             ...stored,
+            pausePending: false,
             automationId: undefined,
             codexProjectId: effectiveProjectIdentity.codexProjectId,
             codexProjectKind: effectiveProjectIdentity.codexProjectKind,
@@ -1531,12 +1548,24 @@ export function App() {
       options,
     };
     queuedAutomationSavesRef.current.set(queuedSave.projectId, queuedSave);
+    if (!options.enabledByUser) {
+      const previous = projectAutomationsRef.current[queuedSave.projectId];
+      writeProjectAutomation(queuedSave.projectId, {
+        ...automationRequestContext,
+        ...previous,
+        ...options,
+        status: previous?.status ?? "PAUSED",
+        enabledByUser: false,
+        pausePending: true,
+      });
+    }
     if (!automationRequestInFlightRef.current) {
       void drainQueuedAutomationSaves(queuedSave.projectId);
     }
   }, [
     automationRequestContext,
     drainQueuedAutomationSaves,
+    writeProjectAutomation,
   ]);
 
   function openTaskDetail(task: Pick<Task, "identifier" | "projectId">) {
