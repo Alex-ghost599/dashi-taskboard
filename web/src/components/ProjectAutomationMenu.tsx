@@ -21,6 +21,7 @@ interface AutomationOptions {
 
 interface AutomationState extends AutomationOptions {
   status: AutomationStatus;
+  pausePending?: boolean;
   quota?: {
     state: AutomationQuotaState;
     checkedAt: number;
@@ -84,7 +85,14 @@ export function ProjectAutomationMenu({
   const [draft, setDraft] = useState<AutomationOptions>(() => automationOptions(models, automation));
   const status = automation?.status ?? "PAUSED";
   const quota = automation?.quota;
-  const stateLabel = !automation?.enabledByUser
+  const triggerLabel = automation?.pausePending
+    ? text("暂停待确认", "Pause unconfirmed")
+    : status === "ACTIVE"
+      ? text("自动认领中", "Auto-claiming")
+      : text("自动化", "Automation");
+  const stateLabel = automation?.pausePending
+    ? text("暂停待确认", "Pause unconfirmed")
+    : !automation?.enabledByUser
     ? text("已暂停", "Paused")
     : automation.quotaAware && quota?.state === "blocked"
       ? text("额度暂停", "Paused by quota")
@@ -315,16 +323,12 @@ export function ProjectAutomationMenu({
       <button
         ref={triggerRef}
         type="button"
-        className={`project-automation-trigger no-drag ${status === "ACTIVE" ? "is-active" : "is-paused"}`}
-        aria-label={status === "ACTIVE"
-          ? text("自动认领中", "Auto-claiming")
-          : text("自动化", "Automation")}
+        className={`project-automation-trigger no-drag ${status === "ACTIVE" && !automation?.pausePending ? "is-active" : "is-paused"}`}
+        aria-label={triggerLabel}
         aria-busy={pending}
         aria-haspopup="dialog"
         aria-expanded={open}
-        title={status === "ACTIVE"
-          ? text("自动认领中", "Auto-claiming")
-          : text("自动化", "Automation")}
+        title={triggerLabel}
         onClick={() => {
           if (!open) {
             setPosition((current) => ({ ...current, ready: false }));
@@ -334,9 +338,7 @@ export function ProjectAutomationMenu({
         }}
       >
         <TaskboardIcon name={status === "ACTIVE" ? "automationPause" : "automationPlay"} />
-        <span>{status === "ACTIVE"
-          ? text("自动认领中", "Auto-claiming")
-          : text("自动化", "Automation")}</span>
+        <span>{triggerLabel}</span>
       </button>
       {menu}
     </>

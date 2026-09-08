@@ -106,3 +106,10 @@ AI 自动总结和外链图片按用户明确需求保留；总结可向配置�
 ## 个人自动认领 CLI 修复（2026-09-08）
 个人 CDP 启动器通过 `CODEX_TASKBOARD_PERSONAL_SERVICE=1` 选择 `scripts/personal-taskctl.mjs`，scheduled 命令只保存可执行路径，凭据在执行时从个人数据目录读取。默认上游 CLI/runtime-file 路径不变。已有 scheduled 需将原始 `cli/taskctl.mjs` 路径替换为个人包装器，保留其他字段和 PAUSED 状态；仅更新 App 不会重写已保存的 prompt。
 本次 codex 项目由用户要求暂停：主机 enabledByUser=false、对应 scheduled=PAUSED；不得为验证恢复自动执行。使用 scheduled 中的 CLI 命令仅执行 issue list 验证。接口可用不等于业务执行验收。更新 App/注入器时只停止个人服务，保持官方 Codex 及会话运行。安装前备份 App、数据及 automation.toml，恢复时保持调度暂停。
+
+## 暂停意图修复（fork Issue #15，源码验收阶段）
+已复现暂停RPC失败回滚enabled、旧请求列表等待后继续ACTIVE、被动项目身份更新触发ACTIVE，以及页面重载前暂停意图未保存的问题。修复保留关闭意图与pausePending，异常回执不算确认；旧请求失效、被动读取尊重scheduled暂停，未确认暂停重启后继续尝试，确认后停止重试。按钮区分暂停待确认和已暂停。
+
+主机策略文件新增pausePending及policyChange（最近一次策略应用的时间/来源类别），后者不能证明原始点击时间或实际操作者。浏览器localStorage可用时发送前同步写入意图；存储失败提示错误且继续尝试主机暂停。通用server-backed存储是异步，不能以setItem调用证明其已落盘。主机磁盘不可写或CDP长期不可达时，不能保证远端scheduled已暂停；保留错误并重新读回，已有运行会话需另行处理。
+
+本段仅说明源码变更；正式运行版本与真实部署验收以本机安装provenance及个人台账为准。不因此开启真实自动任务、不重启Codex、不改变空队列关闭策略或模型分工。
