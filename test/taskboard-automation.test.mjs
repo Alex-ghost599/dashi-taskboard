@@ -553,8 +553,9 @@ test("personal automation uses credential wrapper instead of inherited runtime e
     process.env.CODEX_TASKBOARD_PERSONAL_SERVICE = "1";
     process.env.CODEX_TASKBOARD_RUNTIME_FILE = "/unrelated/runtime.json";
     const spec = buildTaskboardAutomationSpec(baseRequest);
-    assert.match(spec.prompt, /scripts\/personal-taskctl\.mjs/);
-    assert.doesNotMatch(spec.prompt, /cli\/taskctl\.mjs|--runtime-file|unrelated/);
+    const normalizedPrompt = spec.prompt.replaceAll("\\", "/");
+    assert.match(normalizedPrompt, /scripts\/personal-taskctl\.mjs/);
+    assert.doesNotMatch(normalizedPrompt, /cli\/taskctl\.mjs|--runtime-file|unrelated/);
     assert.equal(spec.model, baseRequest.model);
     assert.equal(spec.reasoningEffort, baseRequest.reasoningEffort);
   } finally {
