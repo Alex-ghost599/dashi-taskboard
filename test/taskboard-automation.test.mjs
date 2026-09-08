@@ -545,3 +545,23 @@ test("pause is idempotent for an already paused matching automation", async () =
   assert.deepEqual(calls, [{ method: "list-automations", params: {} }]);
   assert.deepEqual(response, { item: matching });
 });
+
+test("personal automation uses credential wrapper instead of inherited runtime endpoint", () => {
+  const previous = process.env.CODEX_TASKBOARD_PERSONAL_SERVICE;
+  const runtime = process.env.CODEX_TASKBOARD_RUNTIME_FILE;
+  try {
+    process.env.CODEX_TASKBOARD_PERSONAL_SERVICE = "1";
+    process.env.CODEX_TASKBOARD_RUNTIME_FILE = "/unrelated/runtime.json";
+    const spec = buildTaskboardAutomationSpec(baseRequest);
+    const normalizedPrompt = spec.prompt.replaceAll("\\", "/");
+    assert.match(normalizedPrompt, /scripts\/personal-taskctl\.mjs/);
+    assert.doesNotMatch(normalizedPrompt, /cli\/taskctl\.mjs|--runtime-file|unrelated/);
+    assert.equal(spec.model, baseRequest.model);
+    assert.equal(spec.reasoningEffort, baseRequest.reasoningEffort);
+  } finally {
+    if (previous === undefined) delete process.env.CODEX_TASKBOARD_PERSONAL_SERVICE;
+    else process.env.CODEX_TASKBOARD_PERSONAL_SERVICE = previous;
+    if (runtime === undefined) delete process.env.CODEX_TASKBOARD_RUNTIME_FILE;
+    else process.env.CODEX_TASKBOARD_RUNTIME_FILE = runtime;
+  }
+});

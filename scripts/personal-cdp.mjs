@@ -59,6 +59,7 @@ const installedPackage = JSON.parse(await readFile(new URL("../package.json", im
 const env = {
   ...withoutTaskboardLauncherEnvironment(process.env),
   CODEX_TASKBOARD_DATA_DIR: data,
+  CODEX_TASKBOARD_PERSONAL_SERVICE: "1",
   CODEX_TASKBOARD_HOST: "127.0.0.1",
   CODEX_TASKBOARD_PORT: "47823",
   CODEX_TASKBOARD_VERSION: `${installedPackage.version}-personal`,

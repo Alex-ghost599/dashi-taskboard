@@ -132,6 +132,10 @@ export function buildTaskboardAutomationPrompt(request) {
 }
 
 function buildTaskctlCommand(request) {
+  if (process.env.CODEX_TASKBOARD_PERSONAL_SERVICE === "1") {
+    const personalCliPath = fileURLToPath(new URL("../scripts/personal-taskctl.mjs", import.meta.url));
+    return `${shellQuote(process.execPath)} ${shellQuote(personalCliPath)}`;
+  }
   const command = `${shellQuote(process.execPath)} ${shellQuote(taskctlCliPath)}`;
   const runtimeFilePath = process.env.CODEX_TASKBOARD_RUNTIME_FILE;
   return runtimeFilePath
