@@ -7,6 +7,15 @@ export { createTaskboardServer, resolveHost, resolvePort, resolveServerOptions }
 
 async function main() {
   const personal = process.env.CODEX_TASKBOARD_PERSONAL_MODE === "1";
+  const owned = personal && process.env.CODEX_TASKBOARD_PARENT_PIPE === "1";
+  let parentLost = () => process.exit(0);
+  if (owned) {
+    // This pipe is owned by the spawning App; EOF also covers an App crash.
+    // Install before async startup so an abandoned startup cannot leave a service.
+    process.stdin.once("end", () => parentLost());
+    process.stdin.once("error", () => parentLost());
+    process.stdin.resume();
+  }
   if (personal) {
     if (!process.env.CODEX_TASKBOARD_DATA_DIR || resolveHost() !== "127.0.0.1") {
       throw new Error("Personal service requires an explicit data directory and loopback host");
@@ -22,7 +31,9 @@ async function main() {
     ? null
     : Number(process.env.CODEX_TASKBOARD_LISTEN_FD);
   const address = await app.listen({ host, port: resolvePort(), fd: listenFd });
-  console.log(`Codex Taskboard listening on http://127.0.0.1:${address.port}`);
+  console.log(owned
+    ? JSON.stringify({ event: "personal-ready", port: address.port })
+    : `Codex Taskboard listening on http://127.0.0.1:${address.port}`);
   if (host === "0.0.0.0") {
     const addresses = Object.values(os.networkInterfaces())
       .flat()
@@ -33,11 +44,12 @@ async function main() {
     }
   }
 
-  let closing = false;
-  const close = async () => {
-    if (closing) return;
-    closing = true;
-    await app.close();
+  let closePromise;
+  const close = () => (closePromise ??= app.close());
+  parentLost = () => {
+    // No parent remains to enforce its five-second deadline. Limit our own drain.
+    setTimeout(() => process.exit(1), 5000).unref();
+    close().then(() => process.exit(0), (error) => { console.error(error); process.exit(1); });
   };
   process.once("SIGINT", () => close().then(() => process.exit(0)));
   process.once("SIGTERM", () => close().then(() => process.exit(0)));

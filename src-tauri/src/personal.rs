@@ -1,13 +1,14 @@
 //! Personal desktop: owns only its loopback server; no Codex/updater/Skill lifecycle.
 use std::{
     fs::{self, OpenOptions},
-    io::{BufRead, BufReader, Write},
     net::TcpListener,
     os::{fd::AsRawFd, unix::process::CommandExt},
     process::{Child, Command, Stdio},
     sync::Mutex,
 };
 use tauri::Manager;
+#[path = "personal_readiness.rs"]
+mod readiness;
 
 struct Server(Mutex<Option<Child>>);
 impl Server {
@@ -57,10 +58,11 @@ pub fn run() {
                 .env("CODEX_TASKBOARD_HOST", "127.0.0.1")
                 .env("CODEX_TASKBOARD_PORT", "47823")
                 .env("CODEX_TASKBOARD_LISTEN_FD", "3")
+                .env("CODEX_TASKBOARD_PARENT_PIPE", "1")
                 .env("CODEX_TASKBOARD_VERSION", concat!(env!("CARGO_PKG_VERSION"), "-personal"))
                 .env_remove("CODEX_TASKBOARD_INSTANCE_TOKEN")
                 .env_remove("CODEX_TASKBOARD_INSTANCE_SECRET")
-                .stdout(Stdio::piped()).stderr(log.try_clone()?);
+                .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(log.try_clone()?);
             unsafe {
                 command.pre_exec(move || {
                     if libc::dup2(fd, 3) < 0 || libc::fcntl(3, libc::F_SETFD, 0) < 0 {
@@ -73,18 +75,8 @@ pub fn run() {
             drop(listener);
             let stdout = child.stdout.take().unwrap();
             let server = Server(Mutex::new(Some(child)));
-            let mut reader = BufReader::new(stdout);
-            let mut ready = String::new();
-            reader.read_line(&mut ready)?;
-            if !ready.contains("Codex Taskboard listening on http://127.0.0.1:47823") {
-                return Err("Personal server failed; see ~/Library/Logs/Dashi Taskboard Personal/server.log".into());
-            }
+            readiness::wait_for_ready(stdout, log, std::time::Duration::from_secs(15))?;
             app.manage(server);
-            let mut output = log;
-            writeln!(output, "{}", ready.trim())?;
-            std::thread::spawn(move || {
-                for line in reader.lines().map_while(Result::ok) { let _ = writeln!(output, "{line}"); }
-            });
             tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::External(
                 "http://127.0.0.1:47823".parse()?
             )).title("Dashi Taskboard Personal").inner_size(1280.0, 850.0).build()?;
