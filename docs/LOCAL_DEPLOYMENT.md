@@ -124,3 +124,6 @@ Node重复关闭请求共用同一drain Promise，避免SIGTERM与管道EOF交�
 
 ## 可选源码工具：项目策略预检（#24A）
 使用现有 Node 执行 `scripts/execution-policy.mjs --help`，控制库必须显式指定，部署与恢复见 [EXECUTION_POLICY.md](EXECUTION_POLICY.md)。此工具当前独立使用，无后台进程，无模型调用，不写正式任务库、不改共享 Skill/PATH；未接入旧 scheduled，pause 不替代旧自动化暂停。功能验收使用隔离合成控制库，无需替换正式 App。
+
+## 可选源码工具：自动化能力报告（#23A）
+现有Node执行 `scripts/automation-capabilities.mjs --help`；显式选择可信Codex可执行文件或离线目录文件。命令只读目录，live可能更新CLI自身模型缓存，不创建模型turn或修改业务数据。报告不授权派发，详见 [AUTOMATION_CAPABILITIES.md](AUTOMATION_CAPABILITIES.md)。本阶段不安装替换App、不启用真实自动化。
