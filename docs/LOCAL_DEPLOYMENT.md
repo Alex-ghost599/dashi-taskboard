@@ -130,3 +130,6 @@ Node重复关闭请求共用同一drain Promise，避免SIGTERM与管道EOF交�
 
 ## 可选源码工具：Judge隔离探针（#23B）
 运行 `scripts/judge-isolation-probe.mjs --help`，显式指定可信CLI 0.153.3。使用一次性临时目录和本机动态端口，结束自行清理；不使用登录凭据，不安装、不替换App。范围及失败含义见 [JUDGE_ISOLATION_PROBE.md](JUDGE_ISOLATION_PROBE.md)，成功也不允许生产派发。
+
+### 读取与提问负向场景
+同一探针入口增加临时外部合成Skill及符号链接、空库存检查和读取/提问拒绝回执；仅清理本次生成的临时目录。13次请求均为本机合成流量，正式App和配置不变。非空Skill库存会失败，不自动接受新增Skill。
