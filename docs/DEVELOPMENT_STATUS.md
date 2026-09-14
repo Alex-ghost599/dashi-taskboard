@@ -92,3 +92,6 @@ Node重复关闭请求共用同一drain Promise，避免SIGTERM与管道EOF交�
 
 ## #24A 项目策略前置能力
 新增本地 execution-policy CLI、独立控制库及严格范围预检，详见 [EXECUTION_POLICY.md](EXECUTION_POLICY.md)。不接入新旧调度器，不触发模型/业务任务；预检不授权派发。#24 保持开放，实际权限、预算占用、派发前原子核验及停止运行 UI 依赖后续适配器/协调器工作。当前正式 App 未因本阶段替换。
+
+## #23A 模型与能力报告
+固定Spark/GPT6模型选择、effort白名单及只读能力CLI已实现，见 [AUTOMATION_CAPABILITIES.md](AUTOMATION_CAPABILITIES.md)。本机无模型命令沙箱负向测试与账户独立Spark额度有证据；实际Judge工具权限、模型生成及桌面绑定回执未验收。报告不授权派发，#23保持开放，正式App和旧scheduled未变。
