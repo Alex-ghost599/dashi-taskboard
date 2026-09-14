@@ -1,14 +1,17 @@
 #!/usr/bin/env node
+import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createServer } from 'node:http';
-import { mkdtemp, mkdir, writeFile, access, rm, realpath } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, access, rm, realpath, symlink, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { CodexAppServer } from '../server/codex-app-server.mjs';
 import { executableCommand } from '../shared/executable-command.mjs';
 import { judgeProbeConfig, validateJudgeTools, validateRejections } from '../shared/judge-isolation.mjs';
+
+import { judgeReadCalls, validateReadReceipts } from '../shared/judge-read-boundaries.mjs';
 
 const ATTACKS = ['exec_command', 'shell', 'apply_patch', 'spawn_agent', 'mcp__unconfigured__write_file'];
 const LIMIT = 1024 * 1024;
@@ -29,7 +32,21 @@ export async function runJudgeIsolationProbe({ executable }) {
       env, cwd, timeout: 5000, maxBuffer: 4096, encoding: 'utf8',
     })).stdout.trim();
     if (version !== 'codex-cli 0.153.3') throw new Error('Unreviewed CLI version');
-    const calls = ATTACKS.map((name, index) => ({ name, callId: `judge_probe_${index}` }));
+    const executionCalls = ATTACKS.map((name, index) => ({ name, callId: `judge_probe_${index}` }));
+    const outside = path.join(root, 'outside'), link = path.join(cwd, 'skill-link');
+    const marker = `synthetic-private-${randomUUID()}`;
+    await mkdir(outside);
+    await writeFile(path.join(outside, 'SKILL.md'), `---\nname: synthetic-probe\ndescription: Synthetic test fixture\n---\n${marker}`);
+    await symlink(outside, link, process.platform === 'win32' ? 'junction' : 'dir');
+    // Positive filesystem control: the target exists and is readable, so a failed tool read is meaningful.
+    if (!(await readFile(path.join(link, 'SKILL.md'), 'utf8')).includes(marker)) throw new Error('Unreadable synthetic control');
+    const readCalls = judgeReadCalls({ outside, link });
+    const calls = [...executionCalls, ...readCalls];
+    const validReceipts = (seenCalls) => {
+      const execution = seenCalls.filter(call => !call.kind), reads = seenCalls.filter(call => call.kind);
+      return (!execution.length || validateRejections(execution, [...outputs.values()]))
+        && (!reads.length || validateReadReceipts(reads, [...outputs.values()]));
+    };
     const outputs = new Map(); let requests = 0;
     let resolveDone, rejectDone;
     const done = new Promise((resolve, reject) => { resolveDone = resolve; rejectDone = reject; });
@@ -40,7 +57,9 @@ export async function runJudgeIsolationProbe({ executable }) {
         if (req.method !== 'POST' || req.url !== '/v1/responses' || req.headers.authorization) throw new Error('Unexpected provider request');
         let size = 0; const chunks = [];
         for await (const chunk of req) { size += chunk.length; if (size > LIMIT) throw new Error('Request too large'); chunks.push(chunk); }
-        const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        const raw = Buffer.concat(chunks).toString('utf8');
+        if (raw.includes(marker)) throw new Error('Synthetic read marker leaked');
+        const body = JSON.parse(raw);
         requests += 1;
         if (requests > calls.length + 1 || body.model !== 'gpt-5.3-codex-spark'
           || body.reasoning?.effort !== 'low' || !validateJudgeTools(body.tools)) throw new Error('Unexpected model or tool schema');
@@ -50,10 +69,10 @@ export async function runJudgeIsolationProbe({ executable }) {
           if (previous && previous.output !== item.output) throw new Error('Conflicting receipt');
           outputs.set(item.call_id, item);
         }
-        if (requests > 1 && !validateRejections(calls.slice(0, requests - 1), [...outputs.values()])) throw new Error('Missing explicit tool rejection');
+        if (requests > 1 && !validReceipts(calls.slice(0, requests - 1))) throw new Error('Missing explicit tool rejection');
         const attack = calls[requests - 1];
         const item = attack ? { type: 'function_call', id: `fc_${requests}`, call_id: attack.callId,
-          name: attack.name, arguments: JSON.stringify({ cmd: `echo forbidden > ${path.join(cwd, 'write-canary')}`,
+          name: attack.name, ...(attack.namespace ? { namespace: attack.namespace } : {}), arguments: JSON.stringify(attack.arguments ?? { cmd: `echo forbidden > ${path.join(cwd, 'write-canary')}`,
             command: `echo forbidden > ${path.join(cwd, 'write-canary')}`, path: path.join(cwd, 'write-canary'), content: 'forbidden' }) }
           : { type: 'message', id: 'probe_message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'synthetic probe complete' }] };
         const response = { id: `probe_response_${requests}`, status: 'completed', output: [item], usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } };
@@ -83,12 +102,14 @@ export async function runJudgeIsolationProbe({ executable }) {
     const completed = await done;
     const canaryCreated = await access(path.join(cwd, 'write-canary')).then(() => true, () => false);
     if (completed?.turn?.status !== 'completed' || requests !== calls.length + 1
-      || !validateRejections(calls, [...outputs.values()]) || canaryCreated) throw new Error('Incomplete negative proof');
+      || !validReceipts(calls) || canaryCreated) throw new Error('Incomplete negative proof');
     return { schemaVersion: 1, cliVersion: version, status: 'synthetic_tool_rejections_verified',
       authorizesDispatch: false, realModelCalls: 0, credentialsUsed: false, syntheticRequests: requests,
-      rejectedTools: calls.map(call => ({ name: call.name, callId: call.callId, output: outputs.get(call.callId).output })),
+      rejectedTools: executionCalls.map(call => ({ name: call.name, callId: call.callId, output: outputs.get(call.callId).output })),
       observedTools: ['request_user_input', 'skills.list', 'skills.read'], canaryCreated,
-      skillsReadConfinementVerified: false, authenticatedModelVerified: false, productionJudgeVerified: false };
+      readBoundaryReceipts: readCalls.map(call => ({ callId: call.callId, kind: call.kind, output: outputs.get(call.callId).output })),
+      emptySkillInventoryVerified: true, unavailablePackageRejectionsVerified: true, defaultModeInputRejected: true,
+      registeredSkillConfinementVerified: false, skillsReadConfinementVerified: false, authenticatedModelVerified: false, productionJudgeVerified: false };
   } finally {
     clearTimeout(timer);
     await client?.close();
