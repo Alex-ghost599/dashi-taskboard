@@ -34,7 +34,7 @@ live 入口只调用 `codex debug models`，使用独立子进程、有时间/�
 ## #23B 后续验收门槛
 
 1. 选定受限Judge适配器：隔离配置、关闭非必要工具/外部连接，提供有效权限和实际工具清单。先以合成输入验证禁止业务写入和自行派发；拒绝请求必须有回执，不能只观察“模型恰好没调用工具”。
-2. 在专用无业务目录运行Spark结构化判断与Astra最小回应，记录实际返回model、effort、turn ID、完成状态及消耗。测试前固定输入、调用上限、可写位置和停止方式；不对历史todo试运行。此阶段尚未执行，没有模型生成验收结果。
+2. 在专用无业务目录运行Spark结构化判断与Astra最小回应，记录实际返回model、effort、turn ID、完成状态及消耗。测试前固定输入、调用上限、可写位置和停止方式；不对历史todo试运行。已通过独立最小账户合成回应：Spark low与Astra low各1次completed，详见 [隔离探针验收](JUDGE_ISOLATION_PROBE.md)。仍需生产Judge与绑定回执验证。
 3. 对目录/账号/权限证据定义时效与失效行为；模型不可用、工具限制无法落实、结果未知均等待，不fallback到full-access。
 4. 与#18/#24/#25联合验证绑定目标、提交回执、预算预留、暂停竞态和旧scheduled停用；#23整项在这些指定能力缺口解决前保持开放。
 
@@ -43,3 +43,6 @@ live 入口只调用 `codex debug models`，使用独立子进程、有时间/�
 - [Codex模型与Light/Low说明](https://learn.chatgpt.com/docs/models)：采用最低能达到所需效果的effort，不能预先保证所有任务low足够。
 - [App-server协议](https://learn.chatgpt.com/docs/app-server)：模型目录、thread/turn、命令执行与账户限额接口分别存在；启动turn与读目录是不同操作。
 - [权限配置](https://learn.chatgpt.com/docs/permissions)及[配置参考](https://learn.chatgpt.com/docs/config-file/config-reference)：内置:read-only配置及命令网络限制；命令网络规则不覆盖web search、apps或MCP。
+
+### 后续验证进展
+读取边界探针在空Skill库存下通过，Default提问被拒；账户最小生成已有两次回执。只读目录CLI自身仍不进行这些测试，因此其evidence字段继续false，不自动把本机历史验收转为运行时派发许可。当前状态见 [JUDGE_ISOLATION_PROBE.md](JUDGE_ISOLATION_PROBE.md)。

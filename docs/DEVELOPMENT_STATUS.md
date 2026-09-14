@@ -98,3 +98,6 @@ Node重复关闭请求共用同一drain Promise，避免SIGTERM与管道EOF交�
 
 ## #23B 隔离负向探针
 新增真实CLI/本机合成provider探针，验证5类未提供工具调用的明确拒绝及配置/schema漂移失败，见 [JUDGE_ISOLATION_PROBE.md](JUDGE_ISOLATION_PROBE.md)。真实模型调用为0；残留skills.read读取范围、账户模型及生产Judge仍未验收，#23保持开放。正式App/旧scheduled未变。
+
+## #23B 读取与提问边界补充
+隔离探针扩展为13次合成请求：确认两个来源Skill库存为空，4种未注册package/路径读取明确拒绝、Default提问明确拒绝。非空库存或内容标记泄漏立即失败，另补超时/版本/Auth头回归。工具负向结果仅覆盖当前合成provider组合；另以隔离账户进程完成Spark low/Astra low各1次最小生成，共5419 tokens。已注册Skill通用隔离、账户全工具库存及生产适配器/绑定仍未验收，#23继续开放。
