@@ -127,3 +127,6 @@ Node重复关闭请求共用同一drain Promise，避免SIGTERM与管道EOF交�
 
 ## 可选源码工具：自动化能力报告（#23A）
 现有Node执行 `scripts/automation-capabilities.mjs --help`；显式选择可信Codex可执行文件或离线目录文件。命令只读目录，live可能更新CLI自身模型缓存，不创建模型turn或修改业务数据。报告不授权派发，详见 [AUTOMATION_CAPABILITIES.md](AUTOMATION_CAPABILITIES.md)。本阶段不安装替换App、不启用真实自动化。
+
+## 可选源码工具：Judge隔离探针（#23B）
+运行 `scripts/judge-isolation-probe.mjs --help`，显式指定可信CLI 0.153.3。使用一次性临时目录和本机动态端口，结束自行清理；不使用登录凭据，不安装、不替换App。范围及失败含义见 [JUDGE_ISOLATION_PROBE.md](JUDGE_ISOLATION_PROBE.md)，成功也不允许生产派发。

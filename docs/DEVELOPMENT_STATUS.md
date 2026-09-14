@@ -95,3 +95,6 @@ Node重复关闭请求共用同一drain Promise，避免SIGTERM与管道EOF交�
 
 ## #23A 模型与能力报告
 固定Spark/GPT6模型选择、effort白名单及只读能力CLI已实现，见 [AUTOMATION_CAPABILITIES.md](AUTOMATION_CAPABILITIES.md)。本机无模型命令沙箱负向测试与账户独立Spark额度有证据；实际Judge工具权限、模型生成及桌面绑定回执未验收。报告不授权派发，#23保持开放，正式App和旧scheduled未变。
+
+## #23B 隔离负向探针
+新增真实CLI/本机合成provider探针，验证5类未提供工具调用的明确拒绝及配置/schema漂移失败，见 [JUDGE_ISOLATION_PROBE.md](JUDGE_ISOLATION_PROBE.md)。真实模型调用为0；残留skills.read读取范围、账户模型及生产Judge仍未验收，#23保持开放。正式App/旧scheduled未变。
