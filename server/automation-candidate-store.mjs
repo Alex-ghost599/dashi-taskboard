@@ -45,7 +45,7 @@ export class CandidateStore {
         INSERT INTO clock_guard VALUES (1, 0);
         COMMIT;`);
       if (db.prepare("PRAGMA application_id").get().application_id !== APPLICATION_ID
-        || db.prepare("PRAGMA user_version").get().user_version !== 1) throw new Error("Unrecognized candidate store");
+        || ![1, 2].includes(db.prepare("PRAGMA user_version").get().user_version)) throw new Error("Unrecognized candidate store");
       this.db = db;
     } catch (error) { db.close(); throw error; }
   }
