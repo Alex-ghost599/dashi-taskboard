@@ -157,3 +157,9 @@ CI旧用例以子进程启动300ms后的文件判断存活，文件可能早于�
 
 ## 新建表单默认值
 新增偏好键taskboard.new-task-defaults.v1，复用当前taskboardStorage后端；不改变正式任务库schema。浏览器中按项目/当前用户保存priority和labels，升级回滚旧前端可忽略该键。隔离fixture验收不等于正式安装，详见TASK_EDITOR_DEFAULTS.md。测试Vite必须无正式API代理，结束只停止自建进程。
+
+## 执行记录控制库
+ExecutionAttemptStore 首次打开会把策略/准入库升级为 schema3；先停止自建持有者、备份，再隔离验收。旧在途保留占用，恢复旧快照必须对账，不能直接重派；同一运行服务只能使用一个控制库以保证全局单执行者。当前无安装/自动启动接线，不改变正式服务，详见 EXECUTION_ATTEMPTS.md。
+
+### #18A异常退出补验
+自建提交进程在possibly-submitted提交后SIGKILL，重开保留同一request ID并拒绝重派；9项attempt测试通过。没有真实发送或正式部署变化，桥接与桌面验收仍待。
