@@ -142,3 +142,6 @@ Node重复关闭请求共用同一drain Promise，避免SIGTERM与管道EOF交�
 
 ### PR48 Windows 生命周期验收补充
 Windows CI 在 SIGKILL 后 PID 已消失、立即重绑端口时出现 EADDRINUSE；日志不能确定是其他进程抢占还是系统释放延迟。测试现核对 personal-ready 的实际端口等于请求端口，保留独立 PID 退出断言，并对同一端口最多等待 3 秒；持续占用负向测试必须报错。未调整服务端口规则、进程退出逻辑或正式部署；Windows 修订后的 CI 仍待验证。
+
+### #24准入存储（开发中）
+同策略库事务预留UTC日次数与并发，开始前再次核验策略/语义，未确认结果保持占用，已完成同语义返回已有回执。当前只做准入记账、不调用执行器，不能宣称token金额限制或运行期maxCalls已落实。schema2增量升级、跨进程竞争、暂停及强杀恢复9项独立验收通过，Critical/Important为0；使用说明见EXECUTION_ADMISSION.md。完整测试及PR尚待收尾，无正式部署变化。
