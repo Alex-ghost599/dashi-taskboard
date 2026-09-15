@@ -184,7 +184,9 @@ export function taskboardAutomationPolicyOperation(request, {
   return "ensure-active";
 }
 
-export async function reconcileTaskboardAutomation(request, rpc, { stillCurrent = () => true, statusOnly = false } = {}) {
+export async function reconcileTaskboardAutomation(request, rpc, {
+  stillCurrent = () => true, statusOnly = false, beforePause = async () => {},
+} = {}) {
   // Remote policy execution has a separate host-aware path. A null local
   // project ID cannot establish ownership of a remote schedule here.
   if (request.codexProjectKind === "remote") throw new Error("REMOTE_AUTOMATION_OWNERSHIP_UNVERIFIED");
@@ -218,6 +220,8 @@ export async function reconcileTaskboardAutomation(request, rpc, { stillCurrent 
 
   if (request.operation === "pause") {
     if (!existing) return { error: "not-found" };
+    await beforePause(existing);
+    if (!stillCurrent()) return { stale: true };
     if (existing.status === "PAUSED") return { item: existing };
     // Pausing must not migrate the prompt, model, schedule or notifications.
     const preserved = {};

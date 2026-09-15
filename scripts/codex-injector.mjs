@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 import { resolvePort } from "../server/app.mjs";
+import { backupScheduledPause } from "../server/scheduled-pause-backup.mjs";
 import { resolveCodexExecutable } from "../shared/codex-executable.mjs";
 import { withoutTaskboardLauncherEnvironment } from "../shared/codex-environment.mjs";
 import {
@@ -1786,7 +1787,12 @@ async function applyTaskboardAutomationPolicy(
   });
   const result = operation === "list"
     ? { item: currentItem, items: listed.items }
-    : await reconcileTaskboardAutomation({ ...request, operation }, rpc, { stillCurrent });
+    : await reconcileTaskboardAutomation({ ...request, operation }, rpc, {
+      stillCurrent,
+      beforePause: (snapshot) => backupScheduledPause(
+        path.join(path.dirname(automationPoliciesPath), "scheduled-pause-backups"), snapshot,
+      ),
+    });
   if (result?.stale) return result;
   if (result?.error === "not-found") {
     return { operation, hasTodo, ...(quota ? { quota } : {}) };
