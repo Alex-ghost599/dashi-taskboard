@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import vm from "node:vm";
+import { backupScheduledPause } from "../server/scheduled-pause-backup.mjs";
 import {
   buildTaskboardAutomationSpec,
   parseTaskboardAutomationHostRequest,
@@ -27,7 +28,7 @@ async function harness(t, { directory, rpc } = {}) {
   t.after(() => rm(directory, { recursive: true, force: true }));
   const timers = new Set();
   const context = vm.createContext({
-    console, Date, Number, JSON, Map, Set, Promise, Error, path, mkdir, readFile, writeFile,
+    console, Date, Number, JSON, Map, Set, Promise, Error, path, mkdir, readFile, writeFile, backupScheduledPause,
     automationPoliciesPath: path.join(directory, "policies.json"),
     quotaPoliciesLoadPromise: null, quotaPoliciesWritePromise: Promise.resolve(),
     quotaPolicyRecords: new Map(), quotaPolicyTimers: new Map(), quotaPolicyQueues: new Map(),
@@ -277,4 +278,36 @@ test("ownership failure while pausing keeps disabled intent and an unconfirmed p
   const current = (await h.read())[request.taskboardProjectId];
   assert.equal(current.enabledByUser, false);
   assert.equal(current.pausePending, true);
+});
+
+test("a failed backup prevents the scheduled pause mutation and retains intent", async (t) => {
+  const h = await harness(t);
+  await writeFile(path.join(h.directory, "scheduled-pause-backups"), "unrelated existing file");
+  h.context.quotaPolicyRecords.set(request.taskboardProjectId, { version: 1, request });
+  let writes = 0;
+  await assert.rejects(h.context.updateAndApplyQuotaPolicy({ ...request, enabledByUser: false }, async (method) => {
+    if (method === "list-automations") return { items: [automation()] };
+    writes++; return { item: { ...automation(), status: "PAUSED" } };
+  }), /BACKUP_INVALID_FILE/);
+  assert.equal(writes, 0);
+  assert.equal((await h.read())[request.taskboardProjectId].pausePending, true);
+});
+
+test("the original schedule snapshot is readable before the pause update is sent", async (t) => {
+  const { readdir } = await import("node:fs/promises");
+  const h = await harness(t);
+  const original = { ...automation(), prompt: "original private instructions", rrule: "FREQ=DAILY" };
+  let saved = original;
+  let writes = 0;
+  await h.context.applyTaskboardAutomationPolicy({ ...request, enabledByUser: false }, async (method, body) => {
+    if (method === "list-automations") return { items: [saved] };
+    const directory = path.join(h.directory, "scheduled-pause-backups");
+    const names = await readdir(directory);
+    assert.equal(names.length, 1);
+    assert.deepEqual(JSON.parse(await readFile(path.join(directory, names[0]), "utf8")), original);
+    writes++;
+    saved = { ...original, ...body };
+    return { item: saved };
+  });
+  assert.equal(writes, 1);
 });
