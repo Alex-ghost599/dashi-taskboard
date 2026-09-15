@@ -142,3 +142,36 @@ test('upgrading a v2 started record retains global occupancy without inventing a
     assert.equal(upgraded.getAdmission(r.token).state,'started');
   } finally {upgraded.close();}
 });
+
+test('killed submitting process leaves the same durable request and cannot be replayed',async t=>{
+  const {spawn}=await import('node:child_process');
+  const {state,filename,input,binding}=fixture(t);
+  const r=state.reserve(input,1000);
+  const script=`import {ExecutionAttemptStore} from ${JSON.stringify(new URL('../server/execution-attempt-store.mjs',import.meta.url).href)};
+    const s=new ExecutionAttemptStore(process.argv[1]);
+    const result=s.prepare(process.argv[2],JSON.parse(process.argv[3]),JSON.parse(process.argv[4]),1,1001);
+    process.send(result);setInterval(()=>{},1000);`;
+  const child=spawn(process.execPath,['--input-type=module','-e',script,filename,r.token,JSON.stringify(input),JSON.stringify(binding)],{stdio:['ignore','ignore','pipe','ipc'],timeout:5000,killSignal:'SIGKILL'});
+  const exited=new Promise((resolve,reject)=>{child.once('error',reject);child.once('exit',(code,signal)=>resolve({code,signal}));});
+  let stderr='';child.stderr.on('data',c=>stderr+=c);
+  try {
+    const result=await new Promise((resolve,reject)=>{
+      child.once('message',resolve);child.once('error',reject);
+      child.once('exit',()=>reject(new Error(`child exited before prepare receipt: ${stderr}`)));
+    });
+    assert.equal(result.decision,'possibly_submitted');
+    assert.equal(child.kill('SIGKILL'),true);
+    const termination=await exited;
+    assert.equal(termination.signal,'SIGKILL');
+    const reopened=new ExecutionAttemptStore(filename);
+    try {
+      assert.equal(reopened.getAttempt(r.token).request_id,result.requestId);
+      assert.equal(reopened.getAttempt(r.token).state,'possibly_submitted');
+      assert.equal(reopened.prepare(r.token,input,binding,1,100000).reason,'RESERVATION_UNAVAILABLE');
+      assert.equal(reopened.reserve(input,100000).reason,'TASK_UNRESOLVED');
+    } finally {reopened.close();}
+  } finally {
+    if(child.exitCode===null&&child.signalCode===null)child.kill('SIGKILL');
+    await exited;
+  }
+});
