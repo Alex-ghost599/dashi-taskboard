@@ -612,3 +612,38 @@ test("a remote null project ID cannot be used as local schedule ownership proof"
     assert.equal(calls, 0);
   }
 });
+
+test("pause preserves existing prompt, model and schedule instead of applying new options", async () => {
+  const existing = { id: "owned", status: "ACTIVE", ...buildTaskboardAutomationSpec(baseRequest),
+    prompt: "historical prompt", model: "previous-model", reasoningEffort: "medium", rrule: "FREQ=DAILY",
+    notificationPolicy: "failed_runs_only", untrustedExtra: "not an update field" };
+  const writes = [];
+  await reconcileTaskboardAutomation({ ...baseRequest, operation: "pause" }, async (method, params) => {
+    if (method === "list-automations") return { items: [existing] };
+    writes.push(params); return { item: params };
+  });
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].status, "PAUSED");
+  for (const field of ["prompt", "model", "reasoningEffort", "rrule", "notificationPolicy"]) assert.equal(writes[0][field], existing[field]);
+  assert.equal(Object.hasOwn(writes[0], "untrustedExtra"), false);
+});
+
+test("already paused owned schedules do not get rewritten to current model options", async () => {
+  const existing = { id: "owned", status: "PAUSED", ...buildTaskboardAutomationSpec(baseRequest), prompt: "old", model: "old-model" };
+  const calls = [];
+  const result = await reconcileTaskboardAutomation({ ...baseRequest, operation: "pause" }, async (method, params) => {
+    calls.push(method); return method === "list-automations" ? { items: [existing] } : { item: params };
+  });
+  assert.deepEqual(calls, ["list-automations"]);
+  assert.equal(result.item.prompt, "old");
+});
+
+test("pause rejects an incomplete original snapshot rather than filling it from current settings", async () => {
+  for (const changes of [{ prompt: undefined }, { model: undefined }, { localEnvironmentConfigPath: {} }, { notificationPolicy: {} }]) {
+    const calls = [];
+    await assert.rejects(reconcileTaskboardAutomation({ ...baseRequest, operation: "pause" }, async (method, params) => {
+      calls.push(method); return { items: [{ id: "owned", status: "ACTIVE", ...buildTaskboardAutomationSpec(baseRequest), ...changes }] };
+    }), /AUTOMATION_SNAPSHOT_INCOMPLETE/);
+    assert.deepEqual(calls, ["list-automations"]);
+  }
+});

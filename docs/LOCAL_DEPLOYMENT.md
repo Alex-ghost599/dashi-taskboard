@@ -182,3 +182,5 @@ OBSIDIAN_TASK_CONTRACT.md v1 固定后续受管字段编辑语义；当前实现
 
 ## #25A 旧scheduled兼容约束
 本地协调现在要求已记录ID精确存在、名称/cron/local/Codex项目元数据匹配且无重复；无法核验时报告归属错误，暂停仍保留disabled/pending。旧政策与scheduled文件本轮只读检查，没有更新、重建或删除；正式App未替换。当前桌面RPC响应形状和UI提示须部署前实测，不能用合成测试替代。迁移范围和剩余门槛见LEGACY_SCHEDULE_OWNERSHIP.md。
+
+#25A暂停补充：停止计划沿用已读旧配置，不顺带迁移prompt/模型/周期。只读到的快照不证明外部并发配置未改变；正式迁移仍需版本/读回及隔离验收。

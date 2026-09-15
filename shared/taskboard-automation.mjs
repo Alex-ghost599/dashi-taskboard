@@ -218,8 +218,21 @@ export async function reconcileTaskboardAutomation(request, rpc, { stillCurrent 
 
   if (request.operation === "pause") {
     if (!existing) return { error: "not-found" };
-    if (automationMatchesSpec(existing, spec, "PAUSED")) return { item: existing };
-    return rpc("automation-update", { ...spec, id: existing.id, status: "PAUSED" });
+    if (existing.status === "PAUSED") return { item: existing };
+    // Pausing must not migrate the prompt, model, schedule or notifications.
+    const preserved = {};
+    for (const field of ["kind", "name", "prompt", "executionEnvironment", "model", "reasoningEffort", "rrule"]) {
+      if (typeof existing[field] !== "string" || existing[field].length === 0) throw new Error("AUTOMATION_SNAPSHOT_INCOMPLETE");
+      preserved[field] = existing[field];
+    }
+    if ((existing.localEnvironmentConfigPath !== undefined && existing.localEnvironmentConfigPath !== null
+      && !validAbsolutePath(existing.localEnvironmentConfigPath))
+      || (existing.notificationPolicy !== undefined && existing.notificationPolicy !== null
+        && existing.notificationPolicy !== "failed_runs_only")) throw new Error("AUTOMATION_SNAPSHOT_INCOMPLETE");
+    preserved.projectId = spec.projectId; // Checked against every listed project alias above.
+    if (existing.localEnvironmentConfigPath !== undefined) preserved.localEnvironmentConfigPath = existing.localEnvironmentConfigPath;
+    if (existing.notificationPolicy !== undefined) preserved.notificationPolicy = existing.notificationPolicy;
+    return rpc("automation-update", { ...preserved, id: existing.id, status: "PAUSED" });
   }
 
   if (request.operation !== "ensure-active") {
