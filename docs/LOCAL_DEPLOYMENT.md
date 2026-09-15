@@ -172,7 +172,7 @@ ExecutionAttemptStore 首次打开会把策略/准入库升级为 schema3；先�
 
 OBS-02 跨平台测试使用 fileURLToPath 定位脚本；负向用例必须确认脚本已进入目标路径。Mac 本地通过不代替 Windows CI，工具不随本次测试调整重新部署。
 
-OBS-02 Windows ESM补验：普通CLI用例已通过，竞态测试的--import路径需转为file URL，已用pathToFileURL修正；精确拒绝断言保持，等待新CI。
+OBS-02 Windows ESM补验：普通CLI用例已通过，竞态测试的--import路径需转为file URL，已用pathToFileURL修正；精确拒绝断言保持；修正后CI34925657710代码检查及三平台全部通过，PR55已合并。
 
 ## OBS-01 契约阶段
 OBSIDIAN_TASK_CONTRACT.md v1 固定后续受管字段编辑语义；当前实现仍只读，未启用双向写回、后台扫描、模型调用或真实执行绑定。无需重装或修改共享配置，不能将契约中的“允许编辑”理解为已部署功能。后续 #29/#30 须分别验收实现和共享指导变更。
