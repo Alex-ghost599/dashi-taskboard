@@ -184,7 +184,7 @@ export function taskboardAutomationPolicyOperation(request, {
   return "ensure-active";
 }
 
-export async function reconcileTaskboardAutomation(request, rpc, { stillCurrent = () => true } = {}) {
+export async function reconcileTaskboardAutomation(request, rpc, { stillCurrent = () => true, statusOnly = false } = {}) {
   const listed = await rpc("list-automations", {});
   if (!stillCurrent()) return { stale: true };
   if (!Array.isArray(listed?.items)) throw new Error("Codex returned an invalid automation list");
@@ -193,7 +193,7 @@ export async function reconcileTaskboardAutomation(request, rpc, { stillCurrent 
   const matchingItems = items.filter((item) => item?.name === name);
 
   if (request.operation === "list") {
-    return { items: matchingItems.map(sanitizeAutomation).filter(Boolean) };
+    return { items: matchingItems.map(statusOnly ? sanitizeAutomationStatus : sanitizeAutomation).filter(Boolean) };
   }
 
   const existing = (
@@ -221,6 +221,11 @@ export async function reconcileTaskboardAutomation(request, rpc, { stillCurrent 
     });
   }
   return rpc("automation-create", spec);
+}
+
+function sanitizeAutomationStatus(item) {
+  if (!validText(item?.id, 256) || !["ACTIVE", "PAUSED"].includes(item.status)) return null;
+  return { id: item.id, status: item.status };
 }
 
 function sanitizeAutomation(item) {
