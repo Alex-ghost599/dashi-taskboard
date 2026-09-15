@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, readFileSync, symlinkSync, rmSync, mkdirSync, realpathSync, existsSync } from "node:fs";
 import os from "node:os";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 const script = fileURLToPath(new URL("../scripts/obs-import-preview.mjs", import.meta.url));
@@ -56,7 +56,7 @@ fs.openSync = function(file, ...args) {
 }; syncBuiltinESMExports();`);
   const manifest = path.join(dir, "manifest.json");
   writeFileSync(manifest, JSON.stringify({ root, files: ["nested/a.md"], projects: [], scope: { from: "2026-09-01", through: "2026-09-30", statuses: ["planned"] } }));
-  const result = spawnSync(process.execPath, ["--import", preload, script, "--manifest", manifest], { encoding: "utf8" });
+  const result = spawnSync(process.execPath, ["--import", pathToFileURL(preload).href, script, "--manifest", manifest], { encoding: "utf8" });
   assert.equal(result.status, 1);
   assert.equal(result.stdout, "");
   assert.equal(result.stderr.trim(), "SOURCE_CHANGED");
