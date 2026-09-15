@@ -1796,3 +1796,65 @@ test("personal root redirects only loopback navigation and keeps APIs behind the
   const health = await fetch(`${baseUrl}/health`, { headers: { "x-codex-taskboard-challenge": challenge } });
   assert.equal((await health.json()).proof, createHmac("sha256", "a".repeat(64)).update(challenge).digest("hex"));
 });
+
+test('manual execution binding API verifies twice and separates binding from ordinary edits', async () => {
+  const { TaskboardDatabase } = await import('../server/database.mjs');
+  let task, target, reads = 0;
+  const base = await startServer(async directory => {
+    const db = new TaskboardDatabase(path.join(directory, 'taskboard.sqlite'));
+    db.createProject({ id: 'binding-project', name: 'Binding fixture', workspacePath: directory });
+    const actor = { type: 'user', id: 'tester', name: 'Tester', avatarUrl: null };
+    task = db.createTask({ projectId: 'binding-project', title: 'Synthetic binding only', description: '', status: 'backlog', priority: 'none', labels: ['hold'], actor, assignee: actor, threadId: null, developmentContext: null, startDate: null, dueDate: null, recurrence: null });
+    db.close();
+    target = { threadId: 'exact-thread', codexProjectId: 'desktop-project', codexProjectKind: 'local', codexHostId: 'local', workspacePath: directory };
+    return { manualBindingTargetResolver: async () => { reads++; return target; } };
+  });
+  const endpoint = `/api/local/execution-bindings/${task.id}`;
+  assert.equal((await request(base, endpoint)).body.binding.revision, 0);
+  const preview = await request(base, endpoint + '/preview', { method: 'POST', body: { threadId: target.threadId, taskVersion: task.version, bindingRevision: 0 } });
+  assert.equal(preview.response.status, 200);
+  assert.equal((await request(base, endpoint)).body.binding.binding, null);
+  const confirm = await request(base, endpoint + '/confirm', { method: 'POST', body: { previewId: preview.body.binding.previewId } });
+  assert.equal(confirm.response.status, 200);
+  assert.deepEqual(confirm.body.binding.binding, target);
+  assert.equal(confirm.body.binding.authorizesDispatch, false);
+  assert.equal(reads, 2);
+  const edited = await request(base, `/api/tasks/${task.id}`, { method: 'PATCH', body: { version: task.version, title: 'Ordinary edit', threadId: 'source-only' } });
+  assert.equal(edited.response.status, 200);
+  assert.deepEqual((await request(base, endpoint)).body.binding.binding, target);
+  assert.equal((await request(base, endpoint, { method: 'DELETE', body: { taskVersion: task.version, bindingRevision: 1 } })).response.status, 409);
+  const unbound = await request(base, endpoint, { method: 'DELETE', body: { taskVersion: edited.body.task.version, bindingRevision: 1 } });
+  assert.equal(unbound.response.status, 200); assert.equal(unbound.body.binding.binding, null);
+});
+
+test('manual conversation cards API is idempotent, rejects implicit duplicates and preserves revoked cards',async()=>{
+  const {TaskboardDatabase}=await import('../server/database.mjs');let target,reads=0;
+  const base=await startServer(async directory=>{
+    const db=new TaskboardDatabase(path.join(directory,'taskboard.sqlite'));
+    db.createProject({id:'manual-project',name:'Synthetic',workspacePath:directory});db.close();
+    target={threadId:'manual-thread',codexProjectId:'native-project',codexProjectKind:'local',codexHostId:'local',workspacePath:directory};
+    return {manualBindingTargetResolver:async()=>{reads++;return target;}};
+  });
+  const body={requestId:'explicit-1',projectId:'manual-project',threadId:'manual-thread',title:'Explicit synthetic card'};
+  const created=await request(base,'/api/local/manual-cards',{method:'POST',body});
+  assert.equal(created.response.status,200);assert.equal(created.body.authorizesDispatch,false);
+  assert.equal(created.body.created,true);
+  assert.equal(created.body.task.status,'in_progress');assert.deepEqual(created.body.association.source,target);
+  const replay=await request(base,'/api/local/manual-cards',{method:'POST',body});
+  assert.equal(replay.body.created,false);
+  assert.equal(replay.body.task.id,created.body.task.id);assert.equal(reads,1);
+  const duplicate=await request(base,'/api/local/manual-cards',{method:'POST',body:{...body,requestId:'explicit-2'}});
+  assert.equal(duplicate.response.status,409);assert.equal(duplicate.body.error.code,'MANUAL_CARD_EXISTS');
+  assert.equal(duplicate.body.error.details.taskId,created.body.task.id);
+  const additional=await request(base,'/api/local/manual-cards',{method:'POST',body:{...body,requestId:'explicit-3',allowAdditional:true}});
+  assert.equal(additional.response.status,200);assert.notEqual(additional.body.task.id,created.body.task.id);
+  const revoked=await request(base,'/api/local/manual-cards/explicit-1',{method:'DELETE',body:{taskId:created.body.task.id}});
+  assert.equal(revoked.response.status,200);assert.equal(revoked.body.association.active,false);
+  const state=await request(base,'/api/local/manual-cards/explicit-1');
+  assert.equal(state.body.association.active,false);assert.equal(state.body.taskExists,true);
+  assert.equal((await request(base,`/api/tasks/${created.body.task.id}`)).body.task.id,created.body.task.id);
+  const retryRevoked=await request(base,'/api/local/manual-cards',{method:'POST',body});
+  assert.equal(retryRevoked.body.error.code,'MANUAL_CREATION_REVOKED');
+  const injected=await request(base,'/api/local/manual-cards',{method:'POST',body:{...body,threadBinding:target}});
+  assert.equal(injected.response.status,400);
+});

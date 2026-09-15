@@ -1,4 +1,6 @@
 import {randomUUID} from 'node:crypto';
+import path from 'node:path';
+import {lstatSync} from 'node:fs';
 import {ExecutionAdmissionStore} from './execution-admission-store.mjs';
 const blocked=reason=>({decision:'blocked',reason,authorizesDispatch:false});
 const id=value=>typeof value==='string'&&/^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,255}$/.test(value);
@@ -13,7 +15,9 @@ function validBinding(binding,input) {
 
 // Bookkeeping for a future trusted adapter. No network calls or model decisions here.
 export class ExecutionAttemptStore extends ExecutionAdmissionStore {
-  constructor(filename) {
+  #nativeTaskDatabase = null;
+
+  constructor(filename, { taskDatabasePath = null } = {}) {
     super(filename);
     try {
       this.db.exec('BEGIN IMMEDIATE');
@@ -27,8 +31,79 @@ export class ExecutionAttemptStore extends ExecutionAdmissionStore {
         CREATE TABLE execution_queue(token TEXT PRIMARY KEY,intent_json TEXT NOT NULL,state TEXT NOT NULL);
         CREATE TABLE execution_worker(id INTEGER PRIMARY KEY CHECK(id=1),owner TEXT NOT NULL,epoch INTEGER NOT NULL,expires_at INTEGER NOT NULL);
         PRAGMA user_version=4;`);
+      if(this.db.prepare('PRAGMA user_version').get().user_version===4) this.db.exec(`
+        CREATE TABLE execution_bindings(task_id TEXT PRIMARY KEY,project_id TEXT NOT NULL,
+          revision INTEGER NOT NULL,binding_json TEXT,changed_at INTEGER NOT NULL);
+        PRAGMA user_version=5;`);
       this.db.exec('COMMIT');
     } catch(error) {this.db.exec('ROLLBACK');this.close();throw error;}
+    if(taskDatabasePath!==null) {
+      try {
+        if(!path.isAbsolute(taskDatabasePath)||path.resolve(taskDatabasePath)===path.resolve(filename)) throw new Error('Invalid task database path');
+        const info=lstatSync(taskDatabasePath);
+        if(!info.isFile()||info.isSymbolicLink()) throw new Error('Task database must be a regular file');
+        this.db.prepare('ATTACH DATABASE ? AS native_tasks').run(taskDatabasePath);
+        this.db.prepare('SELECT t.id,t.project_id,t.version,t.archived_at,t.status,p.workspace_path FROM native_tasks.tasks t JOIN native_tasks.projects p ON p.id=t.project_id LIMIT 0').all();
+        this.#nativeTaskDatabase={filename:taskDatabasePath,dev:info.dev,ino:info.ino};
+      } catch(error) {this.close();throw error;}
+    }
+  }
+
+  usesTaskDatabase(filename) {
+    if(!this.#nativeTaskDatabase) return false;
+    const info=lstatSync(filename);
+    return !info.isSymbolicLink()&&info.dev===this.#nativeTaskDatabase.dev&&info.ino===this.#nativeTaskDatabase.ino;
+  }
+
+  transaction(now,operation) {
+    return super.transaction(now,()=>{
+      if(this.#nativeTaskDatabase) {
+        const current=lstatSync(this.#nativeTaskDatabase.filename);
+        if(current.isSymbolicLink()||current.dev!==this.#nativeTaskDatabase.dev||current.ino!==this.#nativeTaskDatabase.ino) throw new Error('TASK_DATABASE_REPLACED');
+      }
+      return operation();
+    });
+  }
+
+  #nativeTaskMatches(taskId,projectId,taskVersion,workspacePath,forExecution=false) {
+    if(!this.#nativeTaskDatabase) return true;
+    if(!Number.isSafeInteger(taskVersion)||taskVersion<1) return false;
+    const task=this.db.prepare('SELECT t.project_id,t.version,t.archived_at,t.status,p.workspace_path FROM native_tasks.tasks t JOIN native_tasks.projects p ON p.id=t.project_id WHERE t.id=?').get(taskId);
+    return task&&task.project_id===projectId&&task.version===taskVersion&&task.archived_at===null
+      &&(workspacePath===undefined||task.workspace_path===workspacePath)&&(!forExecution||task.status==='todo');
+  }
+
+  // Call only after trusted target verification. Task content cannot call this method.
+  // Shares the admission transaction: reserved/started/UNKNOWN work prevents rebinding.
+  setBinding(taskId,projectId,expectedRevision,binding,now,taskVersion) {
+    if(!id(taskId)||!id(projectId)||!Number.isSafeInteger(expectedRevision)||expectedRevision<0
+      ||(binding!==null&&(!validBinding(binding,{request:{hostId:'local',workspacePath:binding?.workspacePath}})
+        ||!path.isAbsolute(binding.workspacePath)||binding.workspacePath.length>4096||binding.workspacePath.includes('\0')))) return blocked('INVALID_BINDING');
+    return this.transaction(now,()=>{
+      if(!this.#nativeTaskMatches(taskId,projectId,taskVersion,binding?.workspacePath)) return blocked('TASK_CHANGED');
+      const current=this.getBinding(taskId);
+      if(current.revision!==expectedRevision) return blocked('BINDING_CONFLICT');
+      if(this.db.prepare("SELECT 1 FROM admissions WHERE task_id=? AND state IN ('reserved','started','unknown')").get(taskId)) return blocked('TASK_UNRESOLVED');
+      const revision=current.revision+1;
+      if(!Number.isSafeInteger(revision)) throw new Error('Binding revision exhausted');
+      const encoded=binding===null?null:JSON.stringify(Object.fromEntries(keys.map(key=>[key,binding[key]])));
+      this.db.prepare('INSERT INTO execution_bindings VALUES(?,?,?,?,?) ON CONFLICT(task_id) DO UPDATE SET project_id=excluded.project_id,revision=excluded.revision,binding_json=excluded.binding_json,changed_at=excluded.changed_at')
+        .run(taskId,projectId,revision,encoded,now);
+      return {decision:'bound',...this.getBinding(taskId),authorizesDispatch:false};
+    });
+  }
+
+  getBinding(taskId) {
+    const row=this.db.prepare('SELECT * FROM execution_bindings WHERE task_id=?').get(taskId);
+    return row?{taskId,projectId:row.project_id,revision:row.revision,binding:row.binding_json===null?null:JSON.parse(row.binding_json)}
+      :{taskId,projectId:null,revision:0,binding:null};
+  }
+
+  #bindingMatches(input,binding) {
+    const current=this.getBinding(input.taskId);
+    return current.projectId===input.request.projectId&&current.binding!==null
+      &&current.revision===input.bindingRevision
+      &&keys.every(key=>current.binding[key]===binding[key]);
   }
 
   prepare(token,input,binding,taskVersion,now) {
@@ -43,6 +118,8 @@ export class ExecutionAttemptStore extends ExecutionAdmissionStore {
     const row=this.getAdmission(token);
     if(!row||row.state!=='reserved') return blocked('RESERVATION_UNAVAILABLE');
     if(this.db.prepare("SELECT 1 FROM admissions WHERE state IN ('started','unknown') LIMIT 1").get()) return blocked('GLOBAL_EXECUTOR_BUSY');
+    if(!this.#bindingMatches(input,binding)) return blocked('EXECUTION_BINDING_REQUIRED');
+    if(!this.#nativeTaskMatches(input.taskId,input.request.projectId,taskVersion,binding.workspacePath,true)) return blocked('TASK_CHANGED');
     const reject=reason=>{this.db.prepare("UPDATE admissions SET state='cancelled' WHERE token=?").run(token);return blocked(reason);};
     const check=this.validate(input,now);
     if(check.decision==='blocked') return reject(check.reason);
@@ -75,6 +152,7 @@ export class ExecutionAttemptStore extends ExecutionAdmissionStore {
       const check=this.validate(input,now);
       if(check.decision==='blocked') return check;
       if(!this.#matches(row,input)) return blocked('INPUT_CHANGED');
+      if(!this.#bindingMatches(input,binding)) return blocked('EXECUTION_BINDING_REQUIRED');
       const intent=this.#intent(input,binding,taskVersion),prior=this.getQueuedIntent(token);
       if(prior) return prior.state==='queued'&&prior.intent_json===intent
         ?{decision:'queued',duplicate:true,authorizesDispatch:false}:blocked('QUEUE_CONFLICT');
