@@ -184,3 +184,7 @@ PR57 CI补充：中断测试fixture改为等待显式信号，避免800ms自动�
 
 ## OBS-04 共享指导变更
 本机仅更新vault中央协议与任务模板，加入两个可空会话字段及授权区分；未改共享Skill、PATH、shell、全局Agent入口或正式任务数据。私有台账记录当次备份与2/2应用回执，恢复时先比较后续修改，再按diff撤销，禁止盲目覆盖。实际模板合成解析与ID检查通过；不需要重装App/Codex，运行Agent加载及复杂属性UI未验收，见OBSIDIAN_AGENT_GUIDANCE.md。
+
+## 暂停读回部署限制
+
+本地旧scheduled暂停现在增加list读回；仍ACTIVE或无法读取时继续显示/持久化pausePending，不以update ACK宣称完成。正式安装前须核实当前桌面列表元数据和实时状态。此改动不停止已执行会话，不启用新worker；跨写入者CAS、完整迁移备份流程与单协调器门槛尚未交付。
