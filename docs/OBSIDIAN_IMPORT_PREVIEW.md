@@ -39,6 +39,6 @@
 
 ## 验证及后续
 
-`node --test test/obs-import-preview.test.mjs test/obs-import-preview-cli.test.mjs` 使用合成笔记验证字段保留、状态隔离、项目冲突、去重、YAML 拒绝、输入限制、CLI 无写入和差异识别。此结果只证明源码 CLI 与合成输入路径；尚未对真实 vault 选定范围运行，没有导入、双向联动或 UI 验收。
+`node --test test/obs-import-preview.test.mjs test/obs-import-preview-cli.test.mjs` 使用合成笔记验证字段保留、状态隔离、项目冲突、去重、YAML 拒绝、输入限制、CLI 无写入和差异识别。另对当前开发任务的一份真实 Agent Ops 笔记进行了只读 CLI 验收：显式日期和 active 状态，项目由实时 Codex 项目目录核实，得到一个候选，空执行绑定和原始状态保留，源文件哈希不变。覆盖仅该单文件，没有导入、双向联动或 UI 验收。
 
-真实预览需明确选定文件范围和项目清单；实际索引导入另行确定范围与验收。未来写入须重新读取并检查源变化、整库重复 ID、权限和冲突，不直接执行此报告中的 `proposed`。Obsidian 的权威存储和跨写入者规则仍由 #27/#29/#30 推进。
+后续每次预览仍需明确选定文件范围和项目清单；实际索引导入另行确定范围与验收。未来写入须重新读取并检查源变化、整库重复 ID、权限和冲突，不直接执行此报告中的 `proposed`。Obsidian 的权威存储和跨写入者规则仍由 #27/#29/#30 推进。
