@@ -133,3 +133,6 @@ Node重复关闭请求共用同一drain Promise，避免SIGTERM与管道EOF交�
 
 ### 读取与提问负向场景
 同一探针入口增加临时外部合成Skill及符号链接、空库存检查和读取/提问拒绝回执；仅清理本次生成的临时目录。13次请求均为本机合成流量，正式App和配置不变。非空Skill库存会失败，不自动接受新增Skill。
+
+## 测试命令与副本
+开发验收使用 `npm test` 或 `npm run test:node`；直接 `node --test` 仍采用 Node 默认发现，不排除数字副本。此变化不注册服务、不修改正式 App/数据库。未知副本保留，备份/恢复证据由个人台账记录；生产 Wrangler 命令未更改。详见 TEST_DISCOVERY.md。
