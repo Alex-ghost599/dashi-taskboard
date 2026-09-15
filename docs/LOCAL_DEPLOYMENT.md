@@ -160,3 +160,6 @@ ExecutionAttemptStore 首次打开会把策略/准入库升级为 schema3；先�
 
 ### #18A异常退出补验
 自建提交进程在possibly-submitted提交后SIGKILL，重开保留同一request ID并拒绝重派；9项attempt测试通过。没有真实发送或正式部署变化，桥接与桌面验收仍待。
+
+## #18队列与worker存储
+新增schema4待处理记录与同库worker epoch租约，领取与attempt原子提交；30项隔离回归通过，含4进程争抢和两个阶段SIGKILL恢复。未接CDP/真实模型/正式安装，接收端fencing与可信身份仍待。升级/兼容限制见EXECUTION_WORKER_QUEUE.md。
