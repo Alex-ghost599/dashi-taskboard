@@ -181,3 +181,6 @@ OBSIDIAN_TASK_CONTRACT.md v1 固定后续受管字段编辑语义；当前实现
 源码 CLI ingest 仅写用户明确给定的独立私有 SQLite，list 只读；没有默认路径、服务、正式库或安装接线。共享有界读取器沿用预览清单，原始笔记不写回。schema1、权限、容量、冲突保留与停止/隔离备份恢复步骤见 OBSIDIAN_READONLY_INDEX.md。当前仅合成验证，不建立正式 vault 索引，不需要重启 App/Codex。
 
 PR57 CI补充：中断测试fixture改为等待显式信号，避免800ms自动完成与慢CI竞争；只影响测试，无服务、应用、数据或部署变化。
+
+## OBS-04 共享指导变更
+本机仅更新vault中央协议与任务模板，加入两个可空会话字段及授权区分；未改共享Skill、PATH、shell、全局Agent入口或正式任务数据。私有台账记录当次备份与2/2应用回执，恢复时先比较后续修改，再按diff撤销，禁止盲目覆盖。实际模板合成解析与ID检查通过；不需要重装App/Codex，运行Agent加载及复杂属性UI未验收，见OBSIDIAN_AGENT_GUIDANCE.md。
