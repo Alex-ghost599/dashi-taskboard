@@ -72,6 +72,7 @@ export class ExecutionAdmissionStore extends ExecutionPolicyStore {
 
   start(token, input, now) {
     return this.transaction(now, () => {
+      if (this.db.prepare("PRAGMA user_version").get().user_version >= 3) return blocked("ATTEMPT_REQUIRED");
       const row = this.getAdmission(token);
       if (!row || row.state !== "reserved") return blocked("RESERVATION_UNAVAILABLE");
       const reject = (reason) => { this.db.prepare("UPDATE admissions SET state='cancelled' WHERE token=?").run(token); return blocked(reason); };
@@ -93,7 +94,10 @@ export class ExecutionAdmissionStore extends ExecutionPolicyStore {
 
   finish(token, receiptId, now) {
     if (!id(receiptId)) throw new Error("Receipt required");
-    return this.transaction(now, () => this.db.prepare("UPDATE admissions SET state='finished',receipt_id=? WHERE token=? AND state='started'").run(receiptId, token).changes === 1);
+    return this.transaction(now, () => {
+      if (this.db.prepare("PRAGMA user_version").get().user_version >= 3) throw new Error("Attempt receipt required");
+      return this.db.prepare("UPDATE admissions SET state='finished',receipt_id=? WHERE token=? AND state='started'").run(receiptId, token).changes === 1;
+    });
   }
 
   getAdmission(token) { return this.db.prepare("SELECT * FROM admissions WHERE token=?").get(token) ?? null; }
