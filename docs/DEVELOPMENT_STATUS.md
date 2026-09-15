@@ -136,3 +136,10 @@ CI旧用例以子进程启动300ms后的文件判断存活，文件可能早于�
 
 ## #18队列与worker存储
 新增schema4待处理记录与同库worker epoch租约，领取与attempt原子提交；30项隔离回归通过，含4进程争抢和两个阶段SIGKILL恢复。未接CDP/真实模型/正式安装，接收端fencing与可信身份仍待。升级/兼容限制见EXECUTION_WORKER_QUEUE.md。
+
+## OBS-02 只读预览源码阶段（#28）
+新增显式文件清单 CLI，按 task_id 日期及显式状态筛选，严格解析 frontmatter、校验 Codex 来源、冻结重复 AGT、精确匹配项目，并输出字段差异和原始 Markdown。只输出本机 stdout，不读默认 vault、不写数据库、不授权导入或执行。合成文件/CLI验收与真实任务导入分开；操作及限制见 OBSIDIAN_IMPORT_PREVIEW.md。已用当前开发任务的一份真实笔记进行显式范围只读预览，源哈希不变；合成用例覆盖跳过/冲突/差异。CLI 预览独立交付，导入、UI接入及双向联动未实现。
+
+OBS-02 CI 补验：Windows 暴露测试将 file URL pathname 当本机路径使用的问题，改为 fileURLToPath；负向竞态测试同时核验实际替换及精确错误，避免脚本未启动导致假通过。生产预览代码未变，Windows 结论以修正后 CI 为准。
+
+OBS-02 Windows ESM补验：普通CLI用例已通过，竞态测试的--import路径需转为file URL，已用pathToFileURL修正；精确拒绝断言保持，等待新CI。
