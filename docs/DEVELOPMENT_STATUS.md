@@ -149,3 +149,5 @@ OBS-02 Windows ESM补验：普通CLI用例已通过，竞态测试的--import路
 
 ## OBS-03 只读持久索引（#29 第一阶段）
 新增独立 SQLite 派生索引及显式 manifest CLI，保留版本、操作幂等、修订 CAS 与历史身份占用。重复路径/身份回流持续冻结，未见路径不删除；12 项索引回归包含子进程竞争、复制恢复、容量回滚与 CLI 字节校验。独立审核发现的两项冲突遗漏已有失败回归及修复，终审 Critical0/Important0，联合22/22及全量Node542通过/1skip。共享读取器从既有预览 CLI 提取，行为保持；详见 OBSIDIAN_READONLY_INDEX.md。未接正式源/自动扫描/UI/双向写回，#29 保持开放。
+
+OBS-03 CI诊断：PR57首轮check在既有AiChat中断用例失败，WAIT模拟任务800ms自动完成，慢并行启动后中断无法改变已完成状态。新增等待1000ms的回归先复现completed/running差异，再将WAIT改为显式等待信号，不改变生产代码。原完整Node通过不能代替修正后CI；合并前须核实新检查。

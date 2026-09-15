@@ -804,8 +804,8 @@ if (args[0] === "app-server") {
       emit({type:"item.completed",item:{id:"item-error-1",type:"error",message:"Recoverable item error"}});
     }
     if (prompt.includes("WAIT")) {
-      const timer = setTimeout(() => { emit({type:"turn.completed",usage:{input_tokens:1,output_tokens:2}}); }, 800);
-      process.on("SIGTERM", () => { clearTimeout(timer); process.exit(143); });
+      const timer = setInterval(() => {}, 1000);
+      process.on("SIGTERM", () => { clearInterval(timer); process.exit(143); });
       return;
     }
     if (prompt.includes("FAIL")) process.exit(7);
@@ -963,6 +963,12 @@ test("same-thread turns are locked, different threads run concurrently, failures
     );
     const parallel = await fixture.service.startTurn(secondThread.id, { message: "normal" });
     await waitFor(() => fixture.service.getRun(parallel.id)?.status === "completed");
+    await waitFor(() => fixture.service.getThreadSnapshot(firstThread.id).events.some(
+      (event) => event.type === "turn.started",
+    ));
+    // A slow parallel turn must not let the waiting fixture finish by itself.
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    assert.equal(fixture.service.getRun(waiting.id)?.status, "running");
     const interrupted = await fixture.service.interrupt(waiting.id);
     assert.equal(interrupted.id, waiting.id);
     await waitFor(() => fixture.service.getRun(waiting.id)?.status === "interrupted");
