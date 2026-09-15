@@ -718,7 +718,6 @@ async function createFixture() {
   const capturePath = path.join(directory, "capture.jsonl");
   const environmentCapturePath = path.join(directory, "environment-capture.jsonl");
   const descendantPath = path.join(directory, "descendant-alive");
-  const descendantDelayMs = process.platform === "win32" ? 1_500 : 300;
   const executable = path.join(directory, "fake-codex.mjs");
   await writeFile(executable, `#!/usr/bin/env node
 import { appendFileSync } from "node:fs";
@@ -764,17 +763,19 @@ if (args[0] === "app-server") {
     if (!args.includes("resume")) emit({type:"thread.started",thread_id:"codex-thread-1"});
     emit({type:"turn.started"});
     if (prompt.includes("MALFORMED_STUBBORN") || prompt.includes("CALLBACK_FATAL_STUBBORN")) {
-      spawn(process.execPath, [
+      const descendant = spawn(process.execPath, [
         "-e",
-        'process.on("SIGTERM", () => {}); setTimeout(() => require("node:fs").writeFileSync(process.env.FAKE_DESCENDANT_PATH, "alive"), ${descendantDelayMs}); setInterval(() => {}, 1000)',
-      ], {env:process.env,stdio:"ignore"});
+        'process.on("SIGTERM", () => {}); require("node:fs").writeFileSync(process.env.FAKE_DESCENDANT_PATH, String(process.pid)); process.send("ready"); setInterval(() => {}, 1000)',
+      ], {env:process.env,stdio:["ignore","ignore","ignore","ipc"]});
       process.on("SIGTERM", () => {});
       setInterval(() => {}, 1000);
-      if (prompt.includes("CALLBACK_FATAL_STUBBORN")) {
-        emit({type:"thread.started",thread_id:"unexpected-thread"});
-      } else {
-        process.stdout.write("{not-json}\\n");
-      }
+      descendant.once("message", () => {
+        if (prompt.includes("CALLBACK_FATAL_STUBBORN")) {
+          emit({type:"thread.started",thread_id:"unexpected-thread"});
+        } else {
+          process.stdout.write("{not-json}\\n");
+        }
+      });
       return;
     }
     if (prompt.includes("MALFORMED")) {
@@ -846,7 +847,6 @@ if (args[0] === "app-server") {
     capturePath,
     database,
     databasePath,
-    descendantDelayMs,
     descendantPath,
     directory,
     environmentCapturePath,
@@ -1002,6 +1002,19 @@ test("malformed Codex JSONL fails the run", async () => {
   }
 });
 
+async function processStillRunning(pid) {
+  try { process.kill(pid, 0); }
+  catch (error) { if (error.code === "ESRCH") return false; throw error; }
+  if (process.platform === "linux") {
+    try {
+      const stat = await readFile(`/proc/${pid}/stat`, "utf8");
+      // A zombie has exited and cannot execute, though its adopter has not reaped it.
+      return !["Z", "X"].includes(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[0]);
+    } catch (error) { if (error.code === "ENOENT") return false; throw error; }
+  }
+  return true;
+}
+
 test("parser and event callback failures kill a SIGTERM-resistant process group", async () => {
   const fixture = await createFixture();
   try {
@@ -1014,11 +1027,18 @@ test("parser and event callback failures kill a SIGTERM-resistant process group"
       const run = await fixture.service.startTurn(thread.id, { message });
       await waitFor(() => fixture.service.getRun(run.id).status === "failed");
       assert.equal(fixture.service.getRun(run.id).error, expectedError);
-      await new Promise((resolve) => setTimeout(resolve, fixture.descendantDelayMs + 50));
-      await assert.rejects(readFile(fixture.descendantPath), (error) => error.code === "ENOENT");
+      const pid = Number(await readFile(fixture.descendantPath, "utf8"));
+      assert.ok(Number.isSafeInteger(pid) && pid > 0);
+      assert.equal(await processStillRunning(process.pid), true, "live-process positive control");
+      await waitFor(async () => !(await processStillRunning(pid)), 5000);
     }
   } finally {
-    await fixture.close();
+    try {
+      const pid = Number(await readFile(fixture.descendantPath, "utf8"));
+      if (Number.isSafeInteger(pid) && pid > 0 && await processStillRunning(pid)) process.kill(pid, "SIGKILL");
+    } catch (error) {
+      if (!["ENOENT", "ESRCH"].includes(error.code)) throw error;
+    } finally { await fixture.close(); }
   }
 });
 
