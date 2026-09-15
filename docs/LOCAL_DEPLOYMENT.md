@@ -139,3 +139,6 @@ Node重复关闭请求共用同一drain Promise，避免SIGTERM与管道EOF交�
 
 ## 测试命令与副本
 开发验收使用 `npm test` 或 `npm run test:node`；直接 `node --test` 仍采用 Node 默认发现，不排除数字副本。此变化不注册服务、不修改正式 App/数据库。未知副本保留，备份/恢复证据由个人台账记录；生产 Wrangler 命令未更改。详见 TEST_DISCOVERY.md。
+
+### PR48 Windows 生命周期验收补充
+Windows CI 在 SIGKILL 后 PID 已消失、立即重绑端口时出现 EADDRINUSE；日志不能确定是其他进程抢占还是系统释放延迟。测试现核对 personal-ready 的实际端口等于请求端口，保留独立 PID 退出断言，并对同一端口最多等待 3 秒；持续占用负向测试必须报错。未调整服务端口规则、进程退出逻辑或正式部署；Windows 修订后的 CI 仍待验证。
