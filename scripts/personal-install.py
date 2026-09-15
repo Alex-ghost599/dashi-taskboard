@@ -12,8 +12,9 @@ provenance = json.loads((source / 'Contents/Resources/build-provenance.json').re
 head = subprocess.check_output(['git','rev-parse','HEAD'], cwd=root, text=True).strip()
 if provenance['dirty'] or provenance['commit'] != head:
     raise SystemExit('Refusing installation: artifact is dirty or differs from HEAD')
-processes = subprocess.check_output(['ps','-axo','command'],text=True).splitlines()
-if any(line.startswith(str(target / 'Contents/MacOS') + '/') for line in processes):
+processes = subprocess.check_output(['ps','-axo','pid=,comm='],text=True).splitlines()
+executables = [parts[1] for line in processes if len(parts := line.strip().split(None, 1)) == 2]
+if any(path.startswith(str(target / 'Contents/MacOS') + '/') for path in executables):
     raise SystemExit('Quit the installed personal App before replacing it')
 if target.exists():
     info=plistlib.loads((target / 'Contents/Info.plist').read_bytes())
