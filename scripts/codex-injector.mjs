@@ -1797,8 +1797,19 @@ async function applyTaskboardAutomationPolicy(
   if (result?.error === "not-found") {
     return { operation, hasTodo, ...(quota ? { quota } : {}) };
   }
-  if (operation === "pause" && result?.item?.status !== "PAUSED") {
-    throw new Error("Codex did not confirm the scheduled pause");
+  if (operation === "pause") {
+    if (result?.item?.status !== "PAUSED" || !result.item.id
+      || (request.automationId && result.item.id !== request.automationId)) {
+      throw new Error("Codex did not confirm the scheduled pause");
+    }
+    // An update acknowledgement is not a readback of the stored schedule.
+    const observed = await reconcileTaskboardAutomation({
+      ...request, automationId: result.item.id, operation: "list",
+    }, rpc, { stillCurrent, statusOnly: true });
+    if (observed?.stale || !stillCurrent()) return { stale: true };
+    const paused = observed?.items?.find((item) => item.id === result.item.id);
+    if (paused?.status !== "PAUSED") throw new Error("Codex did not confirm the scheduled pause readback");
+    return { ...observed, item: paused, operation, hasTodo, ...(quota ? { quota } : {}) };
   }
   return { ...result, operation, hasTodo, ...(quota ? { quota } : {}) };
 }

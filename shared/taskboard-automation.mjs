@@ -184,7 +184,9 @@ export function taskboardAutomationPolicyOperation(request, {
   return "ensure-active";
 }
 
-export async function reconcileTaskboardAutomation(request, rpc, { stillCurrent = () => true, beforePause = async () => {} } = {}) {
+export async function reconcileTaskboardAutomation(request, rpc, {
+  stillCurrent = () => true, statusOnly = false, beforePause = async () => {},
+} = {}) {
   // Remote policy execution has a separate host-aware path. A null local
   // project ID cannot establish ownership of a remote schedule here.
   if (request.codexProjectKind === "remote") throw new Error("REMOTE_AUTOMATION_OWNERSHIP_UNVERIFIED");
@@ -213,7 +215,7 @@ export async function reconcileTaskboardAutomation(request, rpc, { stillCurrent 
     }
   }
   if (request.operation === "list") {
-    return { items: existing ? [sanitizeAutomation(existing)].filter(Boolean) : [] };
+    return { items: existing ? [(statusOnly ? sanitizeAutomationStatus : sanitizeAutomation)(existing)].filter(Boolean) : [] };
   }
 
   if (request.operation === "pause") {
@@ -249,6 +251,11 @@ export async function reconcileTaskboardAutomation(request, rpc, { stillCurrent 
     });
   }
   return rpc("automation-create", spec);
+}
+
+function sanitizeAutomationStatus(item) {
+  if (!validText(item?.id, 256) || !["ACTIVE", "PAUSED"].includes(item.status)) return null;
+  return { id: item.id, status: item.status };
 }
 
 function sanitizeAutomation(item) {

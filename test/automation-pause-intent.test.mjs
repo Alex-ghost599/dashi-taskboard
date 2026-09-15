@@ -66,14 +66,17 @@ test("restart retries an unconfirmed pause without any ACTIVE write", async (t) 
   first.context.quotaPolicyRecords.set(request.taskboardProjectId, { version: 1, request });
   await assert.rejects(first.context.updateAndApplyQuotaPolicy({ ...request, enabledByUser: false }, async () => { throw new Error("offline"); }));
   const writes = [];
+  let storedAutomation = automation();
   const restarted = await harness(t, { directory: first.directory, rpc: async (method, body) => {
-    if (method === "list-automations") return { items: [automation()] };
+    if (method === "list-automations") return { items: [storedAutomation] };
     writes.push(body.status);
-    return { item: { ...automation(), ...body } };
+    storedAutomation = { ...storedAutomation, ...body };
+    return { item: storedAutomation };
   } });
   await restarted.context.restoreQuotaPolicies({ closed: false });
   assert.deepEqual(writes, ["PAUSED"]);
   assert.equal((await restarted.read())[request.taskboardProjectId].enabledByUser, false);
+  assert.equal((await restarted.read())[request.taskboardProjectId].pausePending, false);
 });
 
 test("an enable invalidated while listing cannot emit a later ACTIVE mutation", async (t) => {
@@ -113,10 +116,12 @@ test("UI retains an unconfirmed pause instead of restoring the enabled setting",
 
 test("pause retry timer only sends PAUSED and stops after confirmation", async (t) => {
   const writes = [];
+  let storedAutomation = automation();
   const h = await harness(t, { rpc: async (method, body) => {
-    if (method === "list-automations") return { items: [automation()] };
+    if (method === "list-automations") return { items: [storedAutomation] };
     writes.push(body.status);
-    return { item: { ...automation(), ...body } };
+    storedAutomation = { ...storedAutomation, ...body };
+    return { item: storedAutomation };
   } });
   h.context.quotaPolicyCdps.add({ closed: false });
   h.context.quotaPolicyRecords.set(request.taskboardProjectId, { version: 1, request });
@@ -253,6 +258,96 @@ test("unavailable browser storage cannot prevent a pause request or swallow a la
   assert.equal(attempts, 2);
   assert.equal(writes, 2);
   assert.ok(errors.length > 0);
+});
+
+test("a PAUSED acknowledgement cannot clear intent while readback remains ACTIVE", async (t) => {
+  const h = await harness(t);
+  h.context.quotaPolicyRecords.set(request.taskboardProjectId, { version: 1, request });
+  let reads = 0;
+  await assert.rejects(h.context.updateAndApplyQuotaPolicy({ ...request, enabledByUser: false }, async (method, body) => {
+    if (method === "list-automations") { reads++; return { items: [automation()] }; }
+    return { item: { ...automation(), ...body, status: "PAUSED" } };
+  }), /confirm/i);
+  assert.equal(reads, 2);
+  const stored = (await h.read())[request.taskboardProjectId];
+  assert.equal(stored.enabledByUser, false);
+  assert.equal(stored.pausePending, true);
+});
+
+test("a failed pause readback retains pending intent after a successful update", async (t) => {
+  const h = await harness(t);
+  h.context.quotaPolicyRecords.set(request.taskboardProjectId, { version: 1, request });
+  let reads = 0;
+  await assert.rejects(h.context.updateAndApplyQuotaPolicy({ ...request, enabledByUser: false }, async (method, body) => {
+    if (method === "list-automations") {
+      if (++reads > 1) throw new Error("readback unavailable");
+      return { items: [automation()] };
+    }
+    return { item: { ...automation(), ...body, status: "PAUSED" } };
+  }), /readback unavailable/);
+  assert.equal((await h.read())[request.taskboardProjectId].pausePending, true);
+});
+
+test("a pause acknowledgement for another ID is not accepted", async (t) => {
+  const h = await harness(t);
+  h.context.quotaPolicyRecords.set(request.taskboardProjectId, { version: 1, request });
+  await assert.rejects(h.context.updateAndApplyQuotaPolicy({ ...request, enabledByUser: false }, async (method, body) => {
+    if (method === "list-automations") return { items: [automation()] };
+    return { item: { ...automation(), ...body, id: "other-automation", status: "PAUSED" } };
+  }), /confirm/i);
+  assert.equal((await h.read())[request.taskboardProjectId].pausePending, true);
+});
+
+test("invalidating a request during pause readback returns stale", async (t) => {
+  const h = await harness(t);
+  let current = true;
+  let reads = 0;
+  const result = await h.context.applyTaskboardAutomationPolicy({ ...request, enabledByUser: false }, async (method, body) => {
+    if (method === "list-automations") {
+      if (++reads > 1) current = false;
+      return { items: [{ ...automation(), status: reads > 1 ? "PAUSED" : "ACTIVE" }] };
+    }
+    return { item: { ...automation(), ...body } };
+  }, () => current);
+  assert.equal(result.stale, true);
+  assert.equal(reads, 2);
+});
+
+
+test("pause status readback accepts a legacy DAILY rule without exposing its prompt", async () => {
+  const legacy = { ...automation(), status: "PAUSED", rrule: "FREQ=DAILY;BYHOUR=9", prompt: "private legacy prompt" };
+  const observed = await reconcileTaskboardAutomation({ ...request, operation: "list" }, async () => ({ items: [legacy] }), { statusOnly: true });
+  assert.deepEqual(observed.items, [{ id: request.automationId, status: "PAUSED" }]);
+});
+
+test("an already paused legacy DAILY schedule is read back without changing its configuration", async (t) => {
+  const h = await harness(t);
+  const legacy = { ...automation(), status: "PAUSED", rrule: "FREQ=DAILY;BYHOUR=9", prompt: "legacy instructions", model: "legacy-model" };
+  let reads = 0;
+  const writes = [];
+  const result = await h.context.applyTaskboardAutomationPolicy({ ...request, enabledByUser: false }, async (method, body) => {
+    if (method === "list-automations") { reads++; return { items: [legacy] }; }
+    writes.push(body);
+    return { item: { ...legacy, ...body } };
+  });
+  assert.equal(result.item.status, "PAUSED");
+  assert.equal(reads, 2);
+  assert.deepEqual(writes, []);
+  assert.equal(legacy.rrule, "FREQ=DAILY;BYHOUR=9");
+});
+
+test("pause readback rejects a schedule whose project ownership changed", async (t) => {
+  const h = await harness(t);
+  h.context.quotaPolicyRecords.set(request.taskboardProjectId, { version: 1, request });
+  let reads = 0;
+  await assert.rejects(h.context.updateAndApplyQuotaPolicy({ ...request, enabledByUser: false }, async (method, body) => {
+    if (method === "list-automations") {
+      reads++;
+      return { items: [{ ...automation(), ...(reads > 1 ? { projectId: "other-project", status: "PAUSED" } : {}) }] };
+    }
+    return { item: { ...automation(), ...body } };
+  }), /OWNERSHIP_MISMATCH/);
+  assert.equal((await h.read())[request.taskboardProjectId].pausePending, true);
 });
 
 test("project identity drift cannot rewrite the old scheduled target", async (t) => {
