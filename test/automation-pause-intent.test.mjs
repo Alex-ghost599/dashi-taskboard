@@ -318,3 +318,19 @@ test("pause status readback accepts a legacy DAILY rule without exposing its pro
   const observed = await reconcileTaskboardAutomation({ ...request, operation: "list" }, async () => ({ items: [legacy] }), { statusOnly: true });
   assert.deepEqual(observed.items, [{ id: request.automationId, status: "PAUSED" }]);
 });
+
+test("an already paused legacy DAILY schedule is read back without changing its configuration", async (t) => {
+  const h = await harness(t);
+  const legacy = { ...automation(), status: "PAUSED", rrule: "FREQ=DAILY;BYHOUR=9", prompt: "legacy instructions", model: "legacy-model" };
+  let reads = 0;
+  const writes = [];
+  const result = await h.context.applyTaskboardAutomationPolicy({ ...request, enabledByUser: false }, async (method, body) => {
+    if (method === "list-automations") { reads++; return { items: [legacy] }; }
+    writes.push(body);
+    return { item: { ...legacy, ...body } };
+  });
+  assert.equal(result.item.status, "PAUSED");
+  assert.equal(reads, 2);
+  assert.deepEqual(writes, []);
+  assert.equal(legacy.rrule, "FREQ=DAILY;BYHOUR=9");
+});
