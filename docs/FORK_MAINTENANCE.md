@@ -52,3 +52,6 @@ Issue #7 的兼容补丁将原生 preload 回调与网页 postMessage 分开验�
 
 ## 测试可信度补丁
 #21 的标准 Node runner 和 Cloud 测试迁移发现须在上游同步后保留：明确排除数字副本，其他可疑源码名称失败，合法迁移错误仍报告。不要用仅跳过全部不匹配文件的白名单掩盖新增源码；未知副本清理独立于测试修复。
+
+## Obsidian 个人扩展（2026-09-15）
+身份契约、显式清单预览与独立只读派生索引分别见 OBSIDIAN_TASK_CONTRACT.md、OBSIDIAN_IMPORT_PREVIEW.md、OBSIDIAN_READONLY_INDEX.md。上游同步必须保留精确项目映射、历史身份冲突、无自动删除/派发的约束；索引 CAS 不保证源文件写入安全。中央协议/模板的本机兼容指导由 OBSIDIAN_AGENT_GUIDANCE.md 记录，私人路径与备份留本机，不从 Git checkout 覆盖共享指导或历史任务。#29 双向写回和正式同步仍待单独实现、审核与验收。
