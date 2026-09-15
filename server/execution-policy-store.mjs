@@ -34,7 +34,7 @@ export class ExecutionPolicyStore {
           COMMIT;`);
       }
       if (db.prepare("PRAGMA application_id").get().application_id !== APPLICATION_ID
-        || db.prepare("PRAGMA user_version").get().user_version !== 1) {
+        || ![1, 2].includes(db.prepare("PRAGMA user_version").get().user_version)) {
         throw new Error("Unrecognized policy store; refusing to modify it");
       }
       this.db = db;
