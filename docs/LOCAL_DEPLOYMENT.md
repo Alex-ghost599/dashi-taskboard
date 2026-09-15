@@ -167,5 +167,12 @@ ExecutionAttemptStore 首次打开会把策略/准入库升级为 schema3；先�
 ## #18队列与worker存储
 新增schema4待处理记录与同库worker epoch租约，领取与attempt原子提交；30项隔离回归通过，含4进程争抢和两个阶段SIGKILL恢复。未接CDP/真实模型/正式安装，接收端fencing与可信身份仍待。升级/兼容限制见EXECUTION_WORKER_QUEUE.md。
 
+## OBS-02 预览工具（源码阶段）
+`node scripts/obs-import-preview.mjs --manifest /absolute/preview.json` 仅读显式文件及项目快照，结果含笔记全文，保存到私有目录且不提交。没有默认 vault、后台进程、Skill/PATH 或数据库写入；无需安装或重启桌面版。输入格式、限制与退出行为见 OBSIDIAN_IMPORT_PREVIEW.md。已通过当前开发任务单笔记的真实只读预览；不表示全库去重、导入或同步已交付。
+
+OBS-02 跨平台测试使用 fileURLToPath 定位脚本；负向用例必须确认脚本已进入目标路径。Mac 本地通过不代替 Windows CI，工具不随本次测试调整重新部署。
+
+OBS-02 Windows ESM补验：普通CLI用例已通过，竞态测试的--import路径需转为file URL，已用pathToFileURL修正；精确拒绝断言保持，等待新CI。
+
 ## OBS-01 契约阶段
 OBSIDIAN_TASK_CONTRACT.md v1 固定后续受管字段编辑语义；当前实现仍只读，未启用双向写回、后台扫描、模型调用或真实执行绑定。无需重装或修改共享配置，不能将契约中的“允许编辑”理解为已部署功能。后续 #29/#30 须分别验收实现和共享指导变更。
