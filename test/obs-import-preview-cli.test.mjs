@@ -1,10 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, readFileSync, symlinkSync, rmSync, mkdirSync, realpathSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, symlinkSync, rmSync, mkdirSync, realpathSync, existsSync } from "node:fs";
 import os from "node:os";
+import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-const script = new URL("../scripts/obs-import-preview.mjs", import.meta.url);
+const script = fileURLToPath(new URL("../scripts/obs-import-preview.mjs", import.meta.url));
 test("CLI reads explicit synthetic files and leaves their bytes unchanged; invalid scope never emits candidates", (t) => {
   const dir = mkdtempSync(path.join(os.tmpdir(), "obs-preview-test-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
@@ -14,7 +15,7 @@ test("CLI reads explicit synthetic files and leaves their bytes unchanged; inval
   const manifestPath = path.join(dir, "preview.json");
   const run = (input = manifest) => {
     writeFileSync(manifestPath, JSON.stringify(input));
-    return spawnSync(process.execPath, [script.pathname, "--manifest", manifestPath], { encoding: "utf8" });
+    return spawnSync(process.execPath, [script, "--manifest", manifestPath], { encoding: "utf8" });
   };
   const result = run();
   assert.equal(result.status, 0, result.stderr);
@@ -49,14 +50,16 @@ const original = fs.openSync;
 fs.openSync = function(file, ...args) {
  if (file === ${JSON.stringify(path.join(parent, "a.md"))}) {
   fs.renameSync(${JSON.stringify(parent)}, ${JSON.stringify(parent + "-old")});
-  fs.symlinkSync(${JSON.stringify(outside)}, ${JSON.stringify(parent)});
+  fs.symlinkSync(${JSON.stringify(outside)}, ${JSON.stringify(parent)}, "dir");
  }
  return original.call(this, file, ...args);
 }; syncBuiltinESMExports();`);
   const manifest = path.join(dir, "manifest.json");
   writeFileSync(manifest, JSON.stringify({ root, files: ["nested/a.md"], projects: [], scope: { from: "2026-09-01", through: "2026-09-30", statuses: ["planned"] } }));
-  const result = spawnSync(process.execPath, ["--import", preload, script.pathname, "--manifest", manifest], { encoding: "utf8" });
+  const result = spawnSync(process.execPath, ["--import", preload, script, "--manifest", manifest], { encoding: "utf8" });
   assert.equal(result.status, 1);
   assert.equal(result.stdout, "");
+  assert.equal(result.stderr.trim(), "SOURCE_CHANGED");
+  assert.equal(existsSync(parent + "-old"), true);
   assert.equal((result.stderr + result.stdout).includes("PRIVATE_OUTSIDE_SENTINEL"), false);
 });

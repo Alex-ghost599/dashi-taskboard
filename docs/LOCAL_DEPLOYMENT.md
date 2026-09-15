@@ -169,3 +169,5 @@ ExecutionAttemptStore 首次打开会把策略/准入库升级为 schema3；先�
 
 ## OBS-02 预览工具（源码阶段）
 `node scripts/obs-import-preview.mjs --manifest /absolute/preview.json` 仅读显式文件及项目快照，结果含笔记全文，保存到私有目录且不提交。没有默认 vault、后台进程、Skill/PATH 或数据库写入；无需安装或重启桌面版。输入格式、限制与退出行为见 OBSIDIAN_IMPORT_PREVIEW.md。已通过当前开发任务单笔记的真实只读预览；不表示全库去重、导入或同步已交付。
+
+OBS-02 跨平台测试使用 fileURLToPath 定位脚本；负向用例必须确认脚本已进入目标路径。Mac 本地通过不代替 Windows CI，工具不随本次测试调整重新部署。
