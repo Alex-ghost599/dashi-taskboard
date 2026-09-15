@@ -52,6 +52,7 @@ import {
 } from "./InlineMediaComposer";
 import { TaskPropertyPicker } from "./TaskPropertyPicker";
 import { TaskboardIcon } from "./TaskboardIcon";
+import { readTaskEditorDefaults, saveTaskEditorDefaults, currentDevelopmentContext } from "../taskEditorDefaults";
 
 const RECURRENCE_UNITS: Record<TaskboardLanguage, Record<Recurrence["unit"], string>> = {
   zh: {
@@ -108,6 +109,7 @@ interface TaskEditorProps {
   labels: string[];
   currentUser: ActorIdentity;
   developmentScan: DevelopmentScan;
+  developmentScanProjectId?: string | null;
   developmentScanLoading: boolean;
   onCreateLabel: (label: string) => Promise<void>;
   onCancel: (draft: NewTaskEditorDraft | null) => void;
@@ -167,6 +169,7 @@ export function TaskEditor({
   labels: availableLabels,
   currentUser,
   developmentScan,
+  developmentScanProjectId,
   developmentScanLoading,
   onCreateLabel,
   onCancel,
@@ -180,18 +183,22 @@ export function TaskEditor({
   const descriptionComposerRef = useRef<InlineMediaComposerHandle>(null);
   const createSubmitIntentRef = useRef(false);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
+  const defaults = readTaskEditorDefaults(projectId, actorKey(currentUser), availableLabels);
+  const defaultsProjectRef = useRef(projectId);
+  const formUserKeyRef = useRef(actorKey(currentUser));
+  const developmentEditedRef = useRef(Boolean(task || initialDraft));
   const [title, setTitle] = useState(task?.title ?? initialDraft?.title ?? "");
   const [description, setDescription] = useState(task?.description ?? "");
   const [descriptionSegments, setDescriptionSegments] = useState<InlineMediaSegment[]>(
     () => initialDraft?.descriptionSegments ?? createInlineMediaSegments(),
   );
   const [status, setStatus] = useState<TaskStatus>(task?.status ?? initialStatus);
-  const [priority, setPriority] = useState<TaskPriority>(task?.priority ?? initialDraft?.priority ?? "none");
+  const [priority, setPriority] = useState<TaskPriority>(task?.priority ?? initialDraft?.priority ?? defaults.priority);
   const [assignee, setAssignee] = useState<ActorIdentity>(task?.assignee ?? initialDraft?.assignee ?? currentUser);
-  const [selectedLabels, setSelectedLabels] = useState<string[]>(task?.labels ?? initialDraft?.selectedLabels ?? []);
+  const [selectedLabels, setSelectedLabels] = useState<string[]>(task?.labels ?? initialDraft?.selectedLabels ?? defaults.labels);
   const [developmentContext, setDevelopmentContext] = useState<DevelopmentContext | null>(task?.developmentContext ?? initialDraft?.developmentContext ?? null);
-  const [startDate] = useState(task?.startDate ?? initialDraft?.startDate ?? "");
-  const [dueDate, setDueDate] = useState(task?.dueDate ?? initialDraft?.dueDate ?? "");
+  const [startDate, setStartDate] = useState(task ? task.startDate ?? "" : initialDraft?.startDate ?? isoDate(new Date()));
+  const [dueDate, setDueDate] = useState(task ? task.dueDate ?? "" : initialDraft?.dueDate ?? isoDate(new Date()));
   const [recurrence, setRecurrence] = useState<Recurrence | null>(task?.recurrence ?? initialDraft?.recurrence ?? null);
   const [parentId, setParentId] = useState<string | null>(initialDraft?.relations.parentId ?? null);
   const [relatedIds, setRelatedIds] = useState<string[]>(initialDraft?.relations.relatedIds ?? []);
@@ -204,6 +211,22 @@ export function TaskEditor({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<TaskEditorError | null>(null);
   const [attachmentError, setAttachmentError] = useState<TaskEditorError | null>(null);
+
+  useEffect(() => {
+    if (task || defaultsProjectRef.current === projectId) return;
+    defaultsProjectRef.current = projectId;
+    const next = readTaskEditorDefaults(projectId, actorKey(currentUser), availableLabels);
+    setPriority(next.priority);
+    setSelectedLabels(next.labels);
+    setDevelopmentContext(null);
+    developmentEditedRef.current = false;
+  }, [projectId, currentUser, availableLabels, task]);
+
+  useEffect(() => {
+    if (task || developmentEditedRef.current) return;
+    setDevelopmentContext(!developmentScanLoading && developmentScanProjectId === projectId
+      ? currentDevelopmentContext(developmentScan) : null);
+  }, [task, projectId, developmentScan, developmentScanProjectId, developmentScanLoading]);
 
   const developmentOptions = useMemo(() => {
     const options = [...developmentScan.contexts];
@@ -352,6 +375,10 @@ export function TaskEditor({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (formUserKeyRef.current !== actorKey(currentUser)) {
+      setError(["账户已变化，请关闭并重新打开表单。", "Account changed; close and reopen the form."]);
+      return;
+    }
     if (!task) {
       if (!createSubmitIntentRef.current) return;
       createSubmitIntentRef.current = false;
@@ -401,6 +428,7 @@ export function TaskEditor({
         keepOpen: createMore,
         relations: { parentId, relatedIds, subIssueIds },
       });
+      if (!task) saveTaskEditorDefaults(projectId, actorKey(currentUser), priority, selectedLabels);
       if (!task && createMore) {
         setTitle("");
         setDescriptionSegments(createInlineMediaSegments());
@@ -657,17 +685,17 @@ export function TaskEditor({
               ariaLabel={text("代码分支或 Worktree", "Code branch or worktree")}
               title={developmentScan.workspacePath ?? undefined}
               onOpenChange={(open) => setMenu(open ? "development" : null)}
-              onChange={(value) => setDevelopmentContext(value ? JSON.parse(value) as DevelopmentContext : null)}
+              onChange={(value) => { developmentEditedRef.current = true; setDevelopmentContext(value ? JSON.parse(value) as DevelopmentContext : null); }}
             />
 
-            {dueDate && (
-              <button className="property-control" type="button" onClick={() => setMenu("due")}>
-                <span>{text(
-                  `截止 ${displayDate(dueDate, locale)}`,
-                  `Due ${displayDate(dueDate, locale)}`,
-                )}</span>
-              </button>
-            )}
+            <label className="property-control">
+              {text("开始日期", "Start date")}
+              <input aria-label={text("开始日期", "Start date")} type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} />
+            </label>
+            <label className="property-control">
+              {text("截止日期", "Due date")}
+              <input aria-label={text("截止日期", "Due date")} type="date" value={dueDate} onChange={(event) => { setDueDate(event.target.value); if (!event.target.value) setRecurrence(null); }} />
+            </label>
             {recurrence && (
               <button className="property-control" type="button" onClick={() => setMenu("recurrence")}>
                 <span>{text(
