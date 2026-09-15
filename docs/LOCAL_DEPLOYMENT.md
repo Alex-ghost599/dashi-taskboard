@@ -166,3 +166,6 @@ ExecutionAttemptStore 首次打开会把策略/准入库升级为 schema3；先�
 
 ## #18队列与worker存储
 新增schema4待处理记录与同库worker epoch租约，领取与attempt原子提交；30项隔离回归通过，含4进程争抢和两个阶段SIGKILL恢复。未接CDP/真实模型/正式安装，接收端fencing与可信身份仍待。升级/兼容限制见EXECUTION_WORKER_QUEUE.md。
+
+## OBS-02 预览工具（源码阶段）
+`node scripts/obs-import-preview.mjs --manifest /absolute/preview.json` 仅读显式文件及项目快照，结果含笔记全文，保存到私有目录且不提交。没有默认 vault、后台进程、Skill/PATH 或数据库写入；无需安装或重启桌面版。输入格式、限制与退出行为见 OBSIDIAN_IMPORT_PREVIEW.md。尚未在真实 vault 选定范围运行，不表示导入或同步已交付。

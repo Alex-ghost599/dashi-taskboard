@@ -136,3 +136,6 @@ CI旧用例以子进程启动300ms后的文件判断存活，文件可能早于�
 
 ## #18队列与worker存储
 新增schema4待处理记录与同库worker epoch租约，领取与attempt原子提交；30项隔离回归通过，含4进程争抢和两个阶段SIGKILL恢复。未接CDP/真实模型/正式安装，接收端fencing与可信身份仍待。升级/兼容限制见EXECUTION_WORKER_QUEUE.md。
+
+## OBS-02 只读预览源码阶段（#28）
+新增显式文件清单 CLI，按 task_id 日期及显式状态筛选，严格解析 frontmatter、校验 Codex 来源、冻结重复 AGT、精确匹配项目，并输出字段差异和原始 Markdown。只输出本机 stdout，不读默认 vault、不写数据库、不授权导入或执行。合成文件/CLI验收与真实任务导入分开；操作及限制见 OBSIDIAN_IMPORT_PREVIEW.md。真实范围试运行和产品接入未完成，Issue 保持开放。
