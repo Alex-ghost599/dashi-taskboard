@@ -9,8 +9,9 @@ function fixture(t) {
   const store=new ExecutionAttemptStore(filename);
   t.after(()=>{store.close();rmSync(root,{recursive:true,force:true});});
   store.replace('p1',0,{schemaVersion:1,projectId:'p1',hostId:'local',workspacePath:root,enabled:true,taskCategories:['test'],allowedTools:['read'],maxCallsPerRun:1,maxConcurrent:2,maxDispatchesPerDay:10,expiresAt:'2099-01-01T00:00:00.000Z'});
-  const input={taskId:'t1',semanticInputVersion:'a'.repeat(64),policyRevision:1,request:{projectId:'p1',hostId:'local',workspacePath:root,taskCategory:'test',tools:['read'],maxCalls:1}};
+  const input={bindingRevision:1,taskId:'t1',semanticInputVersion:'a'.repeat(64),policyRevision:1,request:{projectId:'p1',hostId:'local',workspacePath:root,taskCategory:'test',tools:['read'],maxCalls:1}};
   const binding={threadId:'thread1',codexProjectId:'project1',codexProjectKind:'local',codexHostId:'local',workspacePath:root};
+  store.setBinding(input.taskId,input.request.projectId,0,binding,0);
   return {store,filename,input,binding};
 }
 test('queue duplicate does not extend expiry or create an attempt; only current worker claims once',t=>{
@@ -121,13 +122,16 @@ test('renewal extends only the live epoch; reusing an owner after expiry produce
 });
 test('schema3 in-flight attempt survives upgrade and still occupies the global slot',t=>{
   const {store,filename,input,binding}=fixture(t),r=store.reserve(input,1000),a=store.prepare(r.token,input,binding,1,1001);
-  // Exact schema3 layout: the two queue tables were its only schema4 additions.
-  store.db.exec('DROP TABLE execution_queue; DROP TABLE execution_worker; PRAGMA user_version=3;');store.close();
+  // Recreate schema3: remove queue additions and the later dedicated binding table.
+  store.db.exec('DROP TABLE execution_queue; DROP TABLE execution_worker; DROP TABLE execution_bindings; PRAGMA user_version=3;');store.close();
   const upgraded=new ExecutionAttemptStore(filename);
   try {
-    assert.equal(upgraded.db.prepare('PRAGMA user_version').get().user_version,4);
+    assert.equal(upgraded.db.prepare('PRAGMA user_version').get().user_version,5);
     assert.equal(upgraded.getAttempt(r.token).request_id,a.requestId);
-    const input2={...input,taskId:'t2'},r2=upgraded.reserve(input2,1002),w=upgraded.acquireWorker('w',1003);
+    assert.equal(upgraded.getBinding(input.taskId).binding,null);
+    const input2={...input,taskId:'t2'};
+    upgraded.setBinding(input2.taskId,input2.request.projectId,0,binding,1002);
+    const r2=upgraded.reserve(input2,1002),w=upgraded.acquireWorker('w',1003);
     upgraded.enqueue(r2.token,input2,binding,1,1004);
     assert.equal(upgraded.claimQueued(w.owner,w.epoch,r2.token,input2,binding,1,1005).reason,'GLOBAL_EXECUTOR_BUSY');
   } finally {upgraded.close();}

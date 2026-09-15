@@ -13,7 +13,9 @@ const ATTACHMENT_FIELDS = ["id", "comment_id", "kind", "filename", "content_type
 // Uses SQLite's readOnly connection, never the migrating TaskboardDatabase constructor.
 export class NativeSnapshotReader {
   #db;
-  constructor(filename) {
+  #bindingStore;
+  constructor(filename, { bindingStore = null } = {}) {
+    this.#bindingStore = bindingStore;
     if (!path.isAbsolute(filename)) throw new Error("Absolute Taskboard database path required");
     this.filename = filename;
     this.identity = statSync(filename);
@@ -67,16 +69,18 @@ export class NativeSnapshotReader {
         const labels = JSON.parse(row.labels);
         if (!Array.isArray(labels) || labels.some((label) => typeof label !== "string")) throw new Error("INVALID_LABELS");
         const flags = labels.map((label) => label.trim().toLowerCase());
-        let binding = null;
-        if (row.thread_id) {
-          binding = row.thread_codex_project_id && row.thread_codex_project_kind && row.thread_codex_host_id && row.thread_workspace_path
-            ? { threadId: row.thread_id, projectId: row.thread_codex_project_id, hostId: row.thread_codex_host_id, workspacePath: row.thread_workspace_path }
-            : { threadId: row.thread_id }; // Deliberately rejected by candidate normalization.
-        }
+        // Conversation provenance is never execution ownership. The coordinator keeps
+        // explicit bindings separately and revalidates them atomically at submission.
+        const explicit = this.#bindingStore?.getBinding(row.id);
+        const selectedBinding = explicit?.projectId === projectId ? explicit.binding : null;
+        const binding = selectedBinding ? {
+          threadId: selectedBinding.threadId, projectId: selectedBinding.codexProjectId,
+          hostId: selectedBinding.codexHostId, workspacePath: selectedBinding.workspacePath,
+        } : null;
         const metadata = { projectWorkspacePath: project.workspace_path, priority: row.priority, startDate: row.start_date, dueDate: row.due_date,
           branch: row.git_branch, worktreePath: row.worktree_path, worktreeBranch: row.worktree_branch,
           recurrenceInterval: row.recurrence_interval, recurrenceUnit: row.recurrence_unit,
-          bindingKind: row.thread_codex_project_kind, source: row.external_source, attachments };
+          bindingKind: selectedBinding?.codexProjectKind ?? null, bindingRevision: explicit?.revision ?? 0, source: row.external_source, attachments };
         tasks.push({ id: row.id, projectId: row.project_id, title: row.title, description: row.description,
           status: row.status === "canceled" ? "cancelled" : row.status, archived: row.archived_at !== null,
           executionAgent: row.assignee_type === "agent" && row.assignee_id === "codex-agent" ? "codex" : null,
