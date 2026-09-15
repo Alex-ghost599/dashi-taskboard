@@ -1,3 +1,4 @@
+import { ManualConversationCard } from "./components/ManualConversationCard";
 import {
   Fragment,
   lazy,
@@ -787,6 +788,7 @@ export function App() {
   const [restoringTaskId, setRestoringTaskId] = useState<string | null>(null);
   const [pendingArchivedTaskDelete, setPendingArchivedTaskDelete] = useState<Task | null>(null);
   const [deletingArchivedTaskId, setDeletingArchivedTaskId] = useState<string | null>(null);
+  const [manualCardProject, setManualCardProject] = useState<string | null>(null);
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [newTaskDraft, setNewTaskDraft] = useState<{
     projectId: string;
@@ -3557,6 +3559,7 @@ export function App() {
                 <RefreshIcon color="currentColor" />
               </button>
             )}
+            {selectedProjectId && !isJiraProject && !isAllProjects && <button className="button" onClick={() => setManualCardProject(selectedProjectId)}>从会话建卡</button>}
             {selectedProjectId && !isJiraProject && (
               <button
                 className="icon-button header-create-button"
@@ -4165,6 +4168,9 @@ export function App() {
           </div>
         </div>
       )}
+
+      {manualCardProject && <ManualConversationCard key={manualCardProject} projectId={manualCardProject}
+        onClose={() => setManualCardProject(null)} onOpen={task => {void refreshTasks(taskScopeProjectId, {quiet: true}); openTaskDetail(task);}} />}
 
       {editor && (
         <TaskEditor
