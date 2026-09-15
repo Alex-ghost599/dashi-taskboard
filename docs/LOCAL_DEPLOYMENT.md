@@ -179,3 +179,6 @@ OBSIDIAN_TASK_CONTRACT.md v1 固定后续受管字段编辑语义；当前实现
 
 ## OBS-04 共享指导变更
 本机仅更新vault中央协议与任务模板，加入两个可空会话字段及授权区分；未改共享Skill、PATH、shell、全局Agent入口或正式任务数据。私有台账记录当次备份与2/2应用回执，恢复时先比较后续修改，再按diff撤销，禁止盲目覆盖。实际模板合成解析与ID检查通过；不需要重装App/Codex，运行Agent加载及复杂属性UI未验收，见OBSIDIAN_AGENT_GUIDANCE.md。
+
+## #25A 旧scheduled兼容约束
+本地协调现在要求已记录ID精确存在、名称/cron/local/Codex项目元数据匹配且无重复；无法核验时报告归属错误，暂停仍保留disabled/pending。旧政策与scheduled文件本轮只读检查，没有更新、重建或删除；正式App未替换。当前桌面RPC响应形状和UI提示须部署前实测，不能用合成测试替代。迁移范围和剩余门槛见LEGACY_SCHEDULE_OWNERSHIP.md。

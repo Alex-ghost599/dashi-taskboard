@@ -149,3 +149,6 @@ OBS-02 Windows ESM补验：普通CLI用例已通过，竞态测试的--import路
 
 ## OBS-04 共享指导落地（#30）
 完成配置写入者盘点并仅应用中央协议/任务模板的可选来源会话与执行绑定规则；没有批量修改全局提示词、历史卡片或Registry。应用前备份、目标/备份各2/2哈希读回一致，实际模板合成解析和vault ID检查通过，独立审核Critical0/Important0。配置落地不表示各Agent运行加载或UI验收，具体范围与恢复见OBSIDIAN_AGENT_GUIDANCE.md。
+
+## #25A 旧scheduled精确归属
+修复记录ID缺失后回退/新建、同名第一条和不同项目覆写风险；元数据不符或歧义时无写入，暂停意图继续保留并标记未确认。34项协调/暂停回归通过，独立终审Critical0/Important0；并入索引前的本分支全量Node538通过/1skip。未迁移真实scheduled或启用新执行；备份/读回/单协调器及UI仍待，详见LEGACY_SCHEDULE_OWNERSHIP.md，#25保持开放。
