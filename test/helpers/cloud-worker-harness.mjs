@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { Miniflare } from "miniflare";
+import { selectMigrations } from "../../scripts/source-discovery.mjs";
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const ENTRY_PATH = path.join(PROJECT_ROOT, "cloud", "src", "index.mjs");
@@ -26,6 +27,7 @@ async function requireCloudImplementation() {
 
 export async function createCloudWorkerHarness({
   sharedSecret = "two-person-shared-secret",
+  migrationsPath = MIGRATIONS_PATH,
 } = {}) {
   await requireCloudImplementation();
   const persistenceRoot = await mkdtemp(path.join(os.tmpdir(), "taskboard-cloud-worker-"));
@@ -52,15 +54,13 @@ export async function createCloudWorkerHarness({
   try {
     await miniflare.ready;
     const db = await miniflare.getD1Database("DB");
-    const migrations = (await readdir(MIGRATIONS_PATH))
-      .filter((filename) => /^\d+.*\.sql$/.test(filename))
-      .sort();
+    const migrations = selectMigrations(await readdir(migrationsPath));
     for (const migration of migrations) {
       const statements = [];
       let current = [];
       let trigger = false;
       for (const sourceLine of (await readFile(
-        path.join(MIGRATIONS_PATH, migration),
+        path.join(migrationsPath, migration),
         "utf8",
       )).split(/\r?\n/)) {
         const line = sourceLine.trim();
