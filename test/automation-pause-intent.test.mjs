@@ -334,3 +334,17 @@ test("an already paused legacy DAILY schedule is read back without changing its 
   assert.deepEqual(writes, []);
   assert.equal(legacy.rrule, "FREQ=DAILY;BYHOUR=9");
 });
+
+test("pause readback rejects a schedule whose project ownership changed", async (t) => {
+  const h = await harness(t);
+  h.context.quotaPolicyRecords.set(request.taskboardProjectId, { version: 1, request });
+  let reads = 0;
+  await assert.rejects(h.context.updateAndApplyQuotaPolicy({ ...request, enabledByUser: false }, async (method, body) => {
+    if (method === "list-automations") {
+      reads++;
+      return { items: [{ ...automation(), ...(reads > 1 ? { projectId: "other-project", status: "PAUSED" } : {}) }] };
+    }
+    return { item: { ...automation(), ...body } };
+  }), /OWNERSHIP_MISMATCH/);
+  assert.equal((await h.read())[request.taskboardProjectId].pausePending, true);
+});
