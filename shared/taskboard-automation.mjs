@@ -185,6 +185,9 @@ export function taskboardAutomationPolicyOperation(request, {
 }
 
 export async function reconcileTaskboardAutomation(request, rpc, { stillCurrent = () => true, statusOnly = false } = {}) {
+  // Remote policy execution has a separate host-aware path. A null local
+  // project ID cannot establish ownership of a remote schedule here.
+  if (request.codexProjectKind === "remote") throw new Error("REMOTE_AUTOMATION_OWNERSHIP_UNVERIFIED");
   const listed = await rpc("list-automations", {});
   if (!stillCurrent()) return { stale: true };
   if (!Array.isArray(listed?.items)) throw new Error("Codex returned an invalid automation list");
@@ -192,21 +195,44 @@ export async function reconcileTaskboardAutomation(request, rpc, { stillCurrent 
   const name = buildTaskboardAutomationName(request);
   const matchingItems = items.filter((item) => item?.name === name);
 
-  if (request.operation === "list") {
-    return { items: matchingItems.map(statusOnly ? sanitizeAutomationStatus : sanitizeAutomation).filter(Boolean) };
-  }
-
-  const existing = (
-    request.automationId
-      ? matchingItems.find((item) => item?.id === request.automationId)
-      : null
-  ) ?? matchingItems[0];
+  // A recorded ID is an exact target, never a hint to fall back by name.
+  const recorded = request.automationId
+    ? items.filter((item) => item?.id === request.automationId)
+    : [];
+  if (request.automationId && recorded.length === 0) throw new Error("AUTOMATION_ID_NOT_FOUND");
+  if (recorded.length > 1 || matchingItems.length > 1) throw new Error("AUTOMATION_OWNERSHIP_AMBIGUOUS");
+  const existing = request.automationId ? recorded[0] : matchingItems[0];
   const spec = buildTaskboardAutomationSpec(request);
+  if (existing) {
+    if (!validText(existing.id, 256)) throw new Error("AUTOMATION_ID_INVALID");
+    if (items.filter((item) => item?.id === existing.id).length !== 1) throw new Error("AUTOMATION_OWNERSHIP_AMBIGUOUS");
+    const projectIds = [existing.projectId, existing.target?.projectId].filter((value) => value !== undefined);
+    if (existing.name !== name || existing.kind !== "cron" || existing.executionEnvironment !== "local"
+      || projectIds.length === 0 || projectIds.some((value) => value !== spec.projectId)) {
+      throw new Error("AUTOMATION_OWNERSHIP_MISMATCH");
+    }
+  }
+  if (request.operation === "list") {
+    return { items: existing ? [(statusOnly ? sanitizeAutomationStatus : sanitizeAutomation)(existing)].filter(Boolean) : [] };
+  }
 
   if (request.operation === "pause") {
     if (!existing) return { error: "not-found" };
-    if (automationMatchesSpec(existing, spec, "PAUSED")) return { item: existing };
-    return rpc("automation-update", { ...spec, id: existing.id, status: "PAUSED" });
+    if (existing.status === "PAUSED") return { item: existing };
+    // Pausing must not migrate the prompt, model, schedule or notifications.
+    const preserved = {};
+    for (const field of ["kind", "name", "prompt", "executionEnvironment", "model", "reasoningEffort", "rrule"]) {
+      if (typeof existing[field] !== "string" || existing[field].length === 0) throw new Error("AUTOMATION_SNAPSHOT_INCOMPLETE");
+      preserved[field] = existing[field];
+    }
+    if ((existing.localEnvironmentConfigPath !== undefined && existing.localEnvironmentConfigPath !== null
+      && !validAbsolutePath(existing.localEnvironmentConfigPath))
+      || (existing.notificationPolicy !== undefined && existing.notificationPolicy !== null
+        && existing.notificationPolicy !== "failed_runs_only")) throw new Error("AUTOMATION_SNAPSHOT_INCOMPLETE");
+    preserved.projectId = spec.projectId; // Checked against every listed project alias above.
+    if (existing.localEnvironmentConfigPath !== undefined) preserved.localEnvironmentConfigPath = existing.localEnvironmentConfigPath;
+    if (existing.notificationPolicy !== undefined) preserved.notificationPolicy = existing.notificationPolicy;
+    return rpc("automation-update", { ...preserved, id: existing.id, status: "PAUSED" });
   }
 
   if (request.operation !== "ensure-active") {

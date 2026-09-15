@@ -5,7 +5,7 @@ import path from "node:path";
 import { test } from "node:test";
 import vm from "node:vm";
 import {
-  buildTaskboardAutomationName,
+  buildTaskboardAutomationSpec,
   parseTaskboardAutomationHostRequest,
   reconcileTaskboardAutomation,
   taskboardAutomationPolicyOperation,
@@ -45,7 +45,7 @@ async function harness(t, { directory, rpc } = {}) {
 }
 
 function automation() {
-  return { id: request.automationId, name: buildTaskboardAutomationName(request), model: request.model, reasoningEffort: request.reasoningEffort, rrule: "RRULE:FREQ=MINUTELY;INTERVAL=5", status: "ACTIVE" };
+  return { id: request.automationId, ...buildTaskboardAutomationSpec(request), status: "ACTIVE" };
 }
 
 test("a failed scheduled pause retains the user's disabled intent on disk", async (t) => {
@@ -193,11 +193,11 @@ test("UI persists a pause before an unfinished host request can lose the page", 
 });
 
 
-test("passive project identity refresh respects an externally paused schedule", async (t) => {
+test("passive project name refresh respects an externally paused schedule", async (t) => {
   const h = await harness(t);
   h.context.quotaPolicyRecords.set(request.taskboardProjectId, { version: 1, request });
   const writes = [];
-  await h.context.reconcileStoredAutomationPolicy({ ...request, codexProjectId: "new-project-id" }, async (method, body) => {
+  await h.context.reconcileStoredAutomationPolicy({ ...request, projectName: "Renamed fixture" }, async (method, body) => {
     if (method === "list-automations") return { items: [{ ...automation(), status: "PAUSED" }] };
     writes.push(body.status);
     return { item: { ...automation(), ...body } };
@@ -347,4 +347,29 @@ test("pause readback rejects a schedule whose project ownership changed", async 
     return { item: { ...automation(), ...body } };
   }), /OWNERSHIP_MISMATCH/);
   assert.equal((await h.read())[request.taskboardProjectId].pausePending, true);
+});
+
+test("project identity drift cannot rewrite the old scheduled target", async (t) => {
+  const h = await harness(t);
+  h.context.quotaPolicyRecords.set(request.taskboardProjectId, { version: 1, request });
+  const writes = [];
+  await assert.rejects(h.context.reconcileStoredAutomationPolicy({ ...request, codexProjectId: "different-project" }, async (method, body) => {
+    if (method === "list-automations") return { items: [{ ...automation(), status: "PAUSED" }] };
+    writes.push(body); return { item: body };
+  }), /AUTOMATION_OWNERSHIP_MISMATCH/);
+  assert.deepEqual(writes, []);
+});
+
+test("ownership failure while pausing keeps disabled intent and an unconfirmed pause", async (t) => {
+  const h = await harness(t);
+  h.context.quotaPolicyRecords.set(request.taskboardProjectId, { version: 1, request });
+  const writes = [];
+  await assert.rejects(h.context.updateAndApplyQuotaPolicy({ ...request, enabledByUser: false }, async (method, body) => {
+    if (method === "list-automations") return { items: [{ ...automation(), projectId: "different-project" }] };
+    writes.push(body); return { item: body };
+  }), /AUTOMATION_OWNERSHIP_MISMATCH/);
+  assert.deepEqual(writes, []);
+  const current = (await h.read())[request.taskboardProjectId];
+  assert.equal(current.enabledByUser, false);
+  assert.equal(current.pausePending, true);
 });
