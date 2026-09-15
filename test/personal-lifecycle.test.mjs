@@ -9,6 +9,38 @@ import { test } from "node:test";
 const root = new URL("../", import.meta.url);
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+async function assertPortReleased(port, timeoutMs = 3000) {
+  const deadline = performance.now() + timeoutMs;
+  while (true) {
+    const replacement = net.createServer();
+    try {
+      await new Promise((resolve, reject) => {
+        replacement.once("error", reject);
+        replacement.listen(port, "127.0.0.1", resolve);
+      });
+      await new Promise((resolve) => replacement.close(resolve));
+      return;
+    } catch (error) {
+      if (error.code !== "EADDRINUSE" || performance.now() >= deadline) throw error;
+      await delay(50);
+    }
+  }
+}
+
+test("port release check fails within its deadline while the same port remains occupied", async () => {
+  const occupied = net.createServer();
+  await new Promise((resolve) => occupied.listen(0, "127.0.0.1", resolve));
+  const port = occupied.address().port;
+  try {
+    await assert.rejects(assertPortReleased(port, 100), { code: "EADDRINUSE" });
+    assert.equal(occupied.listening, true);
+  } finally {
+    await new Promise((resolve) => occupied.close(resolve));
+  }
+  await assertPortReleased(port);
+});
+
+
 test("personal owned service exits when its parent pipe closes and releases its port", async () => {
   const data = await mkdtemp(path.join(os.tmpdir(), "personal-parent-"));
   const reservation = net.createServer();
@@ -66,13 +98,15 @@ test("SIGKILL of the spawning parent closes the owned pipe and releases its serv
     for (let i = 0; i < 100 && !output.includes('"personal-ready"'); i++) await delay(50);
     pid = JSON.parse(output.split("\n")[0]).pid;
     assert.match(output, /personal-ready/);
+    const ready = output.split("\n").filter(Boolean).map((line) => JSON.parse(line))
+      .find((event) => event.event === "personal-ready");
+    assert.equal(ready.port, port, "service must bind the requested port without fallback");
     parent.kill("SIGKILL");
     await dead;
     for (let i = 0; i < 100 && alive(); i++) await delay(50);
     assert.equal(alive(), false, "orphan personal service survived its parent");
-    const replacement = net.createServer();
-    await new Promise((resolve, reject) => { replacement.once("error", reject); replacement.listen(port, "127.0.0.1", resolve); });
-    await new Promise((resolve) => replacement.close(resolve));
+    // Process exit and OS socket release are separately bounded observations.
+    await assertPortReleased(ready.port);
   } finally {
     if (parent.exitCode === null && parent.signalCode === null) parent.kill("SIGKILL");
     await dead;

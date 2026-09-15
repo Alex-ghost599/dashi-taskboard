@@ -139,3 +139,9 @@ Node重复关闭请求共用同一drain Promise，避免SIGTERM与管道EOF交�
 
 ### 本地扫描协调器（开发中）
 新增独立扫描CLI，使用显式原生任务数据库和独立私有控制库。仅本地筛选，不调用模型、不修改任务、不接旧scheduled；状态库schema2增量保存armed/pause和扫描报告。隔离真实10秒空队列→新Todo检测、暂停重启和合成负载验证通过，原生大型数据库负载及正式App/UI仍未验收，尚未正式部署。`status`会初始化或升级控制库，不能作为严格只读查询；`scan-started`不证明已取得扫描租约。
+
+## 测试命令与副本
+开发验收使用 `npm test` 或 `npm run test:node`；直接 `node --test` 仍采用 Node 默认发现，不排除数字副本。此变化不注册服务、不修改正式 App/数据库。未知副本保留，备份/恢复证据由个人台账记录；生产 Wrangler 命令未更改。详见 TEST_DISCOVERY.md。
+
+### PR48 Windows 生命周期验收补充
+Windows CI 在 SIGKILL 后 PID 已消失、立即重绑端口时出现 EADDRINUSE；日志不能确定是其他进程抢占还是系统释放延迟。测试现核对 personal-ready 的实际端口等于请求端口，保留独立 PID 退出断言，并对同一端口最多等待 3 秒；持续占用负向测试必须报错。未调整服务端口规则、进程退出逻辑或正式部署；Windows 修订后的 CI 仍待验证。
