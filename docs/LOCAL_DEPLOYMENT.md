@@ -154,3 +154,6 @@ Windows CI 在 SIGKILL 后 PID 已消失、立即重绑端口时出现 EADDRINUS
 
 ### PR50进程清理验收修订
 CI旧用例以子进程启动300ms后的文件判断存活，文件可能早于父处理错误写入。测试改为IPC ready握手后触发错误，5秒内核验记录PID不再运行，Linux已退出僵尸不视为执行中；保留存活正对照及自建子进程失败清理。生产进程清理代码未改变，本机runner23项通过，跨平台CI待验证。
+
+## 新建表单默认值
+新增偏好键taskboard.new-task-defaults.v1，复用当前taskboardStorage后端；不改变正式任务库schema。浏览器中按项目/当前用户保存priority和labels，升级回滚旧前端可忽略该键。隔离fixture验收不等于正式安装，详见TASK_EDITOR_DEFAULTS.md。测试Vite必须无正式API代理，结束只停止自建进程。
