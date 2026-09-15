@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -513,6 +513,15 @@ export class TaskboardDatabase {
 
       CREATE INDEX IF NOT EXISTS tasks_project_status_sort
         ON tasks(project_id, archived_at, status, sort_order, created_at);
+
+      CREATE TABLE IF NOT EXISTS manual_card_creations (
+        request_id TEXT PRIMARY KEY,
+        input_hash TEXT NOT NULL,
+        task_id TEXT NOT NULL,
+        source_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        revoked_at TEXT
+      );
 
       CREATE TABLE IF NOT EXISTS comments (
         id TEXT PRIMARY KEY,
@@ -1979,9 +1988,74 @@ export class TaskboardDatabase {
     };
   }
 
-  createTask(input) {
+  getManualCardCreation(requestId) {
+    const row = this.database.prepare("SELECT * FROM manual_card_creations WHERE request_id = ?").get(requestId);
+    return row ? { requestId: row.request_id, inputHash: row.input_hash, taskId: row.task_id,
+      source: JSON.parse(row.source_json), createdAt: row.created_at, revokedAt: row.revoked_at,
+      active: row.revoked_at === null } : null;
+  }
+
+  revokeManualCardCreation(requestId, taskId) {
     this.database.exec("BEGIN IMMEDIATE");
     try {
+      const row = this.getManualCardCreation(requestId);
+      if (!row || row.taskId !== taskId) throw new ApiError(409, "MANUAL_REQUEST_CONFLICT", "Manual creation does not match this card");
+      this.database.prepare("UPDATE manual_card_creations SET revoked_at = COALESCE(revoked_at, ?) WHERE request_id = ? AND task_id = ?")
+        .run(now(), requestId, taskId);
+      const result = this.getManualCardCreation(requestId);
+      this.database.exec("COMMIT");
+      return result;
+    } catch (error) { this.database.exec("ROLLBACK"); throw error; }
+  }
+
+  // The service verifies the source at the desktop before first creation. This
+  // storage method provides atomic receipt/card persistence, not desktop trust.
+  createManualConversationTask(input, requestId, { allowAdditional = false, withOutcome = false } = {}) {
+    if (typeof allowAdditional !== "boolean") throw new ApiError(400, "INVALID_MANUAL_REQUEST", "Invalid additional-card choice");
+    if (typeof requestId !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(requestId)) {
+      throw new ApiError(400, "INVALID_MANUAL_REQUEST", "Invalid manual creation request id");
+    }
+    const canonical = value => Array.isArray(value) ? value.map(canonical)
+      : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
+    const inputHash = createHash("sha256").update(JSON.stringify(canonical({ input, allowAdditional }))).digest("hex");
+    const result = this.#createTask(input, { requestId, inputHash, allowAdditional });
+    return withOutcome ? result : result.task;
+  }
+
+  createTask(input) { return this.#createTask(input); }
+
+  #createTask(input, manual = null) {
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      if (manual) {
+        const existing = this.getManualCardCreation(manual.requestId);
+        if (existing) {
+          if (existing.inputHash !== manual.inputHash) throw new ApiError(409, "MANUAL_REQUEST_CONFLICT", "Request id already belongs to different input");
+          if (!existing.active) throw new ApiError(409, "MANUAL_CREATION_REVOKED", "Manual association was revoked");
+          const task = this.getTask(existing.taskId);
+          if (!task) throw new ApiError(409, "MANUAL_CREATION_DELETED", "The manually created card has been deleted");
+          this.database.exec("COMMIT");
+          return { task, created: false };
+        }
+        const current = this.getProject(input.projectId);
+        if (!input.threadBinding || input.threadBinding.threadId !== input.threadId
+          || input.threadBinding.codexHostId !== "local" || input.threadBinding.codexProjectKind !== "local"
+          || !input.threadBinding.codexProjectId || !current?.workspacePath
+          || current.workspacePath !== input.threadBinding.workspacePath) {
+          throw new ApiError(409, "MANUAL_SOURCE_CHANGED", "Source and current project directory must match");
+        }
+        if (!manual.allowAdditional) {
+          const prior = this.database.prepare(`SELECT creations.request_id, creations.task_id
+            FROM manual_card_creations AS creations JOIN tasks ON tasks.id = creations.task_id
+            WHERE creations.revoked_at IS NULL AND tasks.project_id = ?
+              AND json_extract(creations.source_json, '$.threadId') = ?
+              AND json_extract(creations.source_json, '$.codexProjectId') = ?
+              AND json_extract(creations.source_json, '$.codexHostId') = 'local'
+            ORDER BY creations.created_at, creations.request_id LIMIT 1`)
+            .get(input.projectId, input.threadId, input.threadBinding.codexProjectId);
+          if (prior) throw new ApiError(409, "MANUAL_CARD_EXISTS", "This conversation already has a card", { taskId: prior.task_id, requestId: prior.request_id });
+        }
+      }
       const project = this.database.prepare(`
         SELECT
           projects.id,
@@ -2070,8 +2144,14 @@ export class TaskboardDatabase {
         timestamp,
         timestamp,
       );
+      if (manual) {
+        this.database.prepare(`INSERT INTO manual_card_creations
+          (request_id, input_hash, task_id, source_json, created_at, revoked_at) VALUES (?, ?, ?, ?, ?, NULL)`)
+          .run(manual.requestId, manual.inputHash, id, JSON.stringify(input.threadBinding), timestamp);
+      }
       this.database.exec("COMMIT");
-      return this.getTask(id);
+      const task = this.getTask(id);
+      return manual ? { task, created: true } : task;
     } catch (error) {
       this.database.exec("ROLLBACK");
       throw error;
