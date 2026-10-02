@@ -255,7 +255,22 @@ Issue #22 的空项目 UI 范围已验收；其后来补充的真实 host/projec
 
 本轮修复范围是让默认 `build/check` 只完成工程检查，保留已有 `npm run codex:refresh` 的明确刷新入口及原 `--refresh` 语义。该显式命令仍会影响可达看板页面，使用前检查实例和运行中任务；它不等同于旧 `--refresh-if-running` 的 resident replacement。个人源码 App 构建原已使用 `build:web`。
 
-历史静止重加载根因仍未知。已查常规心跳和 quiet 数据更新没有无条件整页导航；宿主挂载容器变化可以重建 iframe，`Page.setDocumentContent` 也需纳入观测。后续需将可见现象、文档/iframe身份、心跳和服务代次对齐；此工程触发修复不代表历史重加载已全部解决。默认构建隐式刷新已移除；隔离 npm fixture 在旧配置下两项失败，修改后相关17项通过，typecheck/build:web通过。fixture只运行记录用stub，不接触真实注入器；Windows脚本执行尚待CI。DOM/心跳补测通过，独立审核Critical 0 / Important 0；Issue #19 保持开放。
+历史静止重加载根因仍未知。已查常规心跳和 quiet 数据更新没有无条件整页导航；宿主挂载容器变化可以重建 iframe，`Page.setDocumentContent` 也需纳入观测。后续需将可见现象、文档/iframe身份、心跳和服务代次对齐；此工程触发修复不代表历史重加载已全部解决。默认构建隐式刷新已移除；隔离 npm fixture 在旧配置下两项失败，修改后相关17项通过，typecheck/build:web通过。fixture只运行记录用stub，不接触真实注入器；Windows脚本fixture已随PR72在Windows x64 CI实际通过；主检查、macOS及Ubuntu 24.04 CI也全部通过。DOM/心跳补测通过，独立审核Critical 0 / Important 0；Issue #19 保持开放。
 
 
 隔离 Chrome 回归补测四项通过（含保留的布局、外链和恶意导航撤权）：无关 DOM mutation 后 frame 对象、window/name、加载请求与 load 事件不变；替换宿主 surface 后恰一次重建，后续稳定；停止心跳超过八秒时空闲 frame 不导航且不自行显示遮罩，明确重新打开后仅显示服务未就绪错误，frame 身份和加载次数不变。每个测试使用独立临时 profile、调试 pipe 与 loopback fixture，自建子进程均退出、服务关闭、profile移除。生产注入脚本未变，此为已有行为补测，首次即绿，无生产失败前证据；fixture通过srcdoc模拟文档加载，不能替代生产CDP文档安装或日常Codex的UI复现。新增测试经独立Node 22复验4/4通过、0跳过，独立审核Critical 0 / Important 0；Issue #19 保持开放。
+
+## 列头可读性候选（Issue #37，2026-10-02）
+
+当前 Mac 实际查看已安装版本的验收项目，SVG 未见明显模糊，列头文字和加号较小。最小候选将列标题 11→12px、行高 16.5→18px，活动状态图标 14→16px、加号 12→14px、按钮 20→24px并禁止收缩。保留原配色、卡片字号和密度；共享归档列标题及容器同步增大，归档 DeleteIcon 本身仍为14px。
+
+组件58/58、typecheck、build:web通过，独立源码与组件审核 Critical0/Important0。合成Mac浏览器3张hold卡实际验证浅深主题、长标题换行、加号打开并关闭未保存表单；720px视口读回列标题12px/状态容器16px/按钮24px，横向滚动容器684px/内容948px且overflowX=auto。未保存表单后仍3卡，临时主题及视口模拟清除，标签和自有服务退出0；未影响正式任务或Codex。
+
+目前只证明当前渲染环境。显示信息为远程1920×1080，实体4K及实际观看距离未验收，不能声称修复高DPI模糊。候选尚未正式安装，Issue保持开放。
+
+
+### Issue #37 原生候选验收（2026-10-03）
+
+已提交 bf7d1bf 候选四项 CI 全部通过，从干净归档构建并可回滚安装。构建来源349份文件、实际打包契约206份资源及签名经独立复核。Finder 实际打开、退出后监听释放、再打开保持列头；当前原生1280×850窗口列文字和图标未见裁切，加号打开表单，关闭未保存。原配色与卡片密度保持，浅深、长标题和720px横向滚动沿用前述隔离UI证据。
+
+正式39卡6评论与安装前、备份及隔离恢复完整逐行摘要一致，三处integrity_check=ok；来源表为空，三个自动认领政策仍关闭，个人入口不注册替换更新器，真实监听仅127.0.0.1。日常Codex未重启。回滚须配对App和数据快照。此段记录合并前候选实际构建SHA；发布提交与安装来源的对照另记，不声称发布SHA已构建。实体4K及实际观看距离未验，当前验收不证明高DPI模糊已修复。

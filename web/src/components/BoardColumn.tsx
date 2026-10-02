@@ -148,7 +148,7 @@ export function BoardColumn({
       <header className="column-header">
         <div className="column-heading">
           <span className={`column-status-icon status-icon-${details.tone}`}>
-            <StatusIcon status={status} color="var(--column-status-color)" size={14} />
+            <StatusIcon status={status} color="var(--column-status-color)" size={16} />
           </span>
           <h2 id={`column-${status}`}>
             {label}{tasks.length > 0 ? ` ${tasks.length}` : ""}
