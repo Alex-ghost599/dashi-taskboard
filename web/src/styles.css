@@ -11887,3 +11887,7 @@ kbd {
   .dashboard-metric { border-left: 0; border-top: var(--border-hairline) solid var(--border); }
   .dashboard-metric:first-child { border-top: 0; }
 }
+
+.conversation-preview-dialog { width: min(720px, calc(100vw - 32px)); max-height: 80vh; overflow: auto; }
+.conversation-preview-dialog { overflow-wrap: anywhere; }
+.conversation-preview-dialog li { margin-bottom: 12px; }

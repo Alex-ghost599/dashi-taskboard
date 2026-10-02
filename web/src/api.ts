@@ -832,3 +832,24 @@ export function resolvePersistedAttachmentUrl(value: string): string {
   }
   return value;
 }
+
+export interface ConversationSourcePreview {
+  projectId: string;
+  workspacePath: string;
+  complete: boolean;
+  truncated: boolean;
+  excludedFiles: number;
+  conflictingThreadIds: string[];
+  saved: false;
+  authorizesDispatch: false;
+  candidates: {
+    threadId: string;
+    status: null;
+    existingTaskIds: string[];
+    sourceFiles: {path: string; headerSha256: string; timestamp: string | null}[];
+  }[];
+}
+
+export async function previewProjectConversations(projectId: string, options: {signal?: AbortSignal} = {}): Promise<ConversationSourcePreview> {
+  return request<ConversationSourcePreview>(`/api/local/conversation-import-preview?projectId=${encodeURIComponent(projectId)}`, {signal: options.signal});
+}
