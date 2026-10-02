@@ -47,57 +47,86 @@ async function readMetadata(file,root,signal,verifyRoot) {
   } finally {await handle.close();}
 }
 
-export async function previewProjectConversations({sessionsRoot,project,existing=[],maxEntries=10000,signal}) {
+export async function previewProjectConversations({sessionsRoot,archivedSessionsRoot,project,existing=[],maxEntries=10000,signal}) {
   signal?.throwIfAborted();
   if(typeof sessionsRoot!=='string'||!path.isAbsolute(sessionsRoot)||typeof project?.id!=='string'
     ||typeof project.workspacePath!=='string'||!path.isAbsolute(project.workspacePath)
+    ||(archivedSessionsRoot!==undefined&&(typeof archivedSessionsRoot!=='string'||!path.isAbsolute(archivedSessionsRoot)))
     ||!Number.isInteger(maxEntries)||maxEntries<1||maxEntries>10000||!Array.isArray(existing)) throw new Error('INVALID_PREVIEW_SCOPE');
-  const requestedRoot=path.resolve(sessionsRoot),workspace=path.resolve(project.workspacePath);
-  const rootStat=await lstat(requestedRoot);
-  if(rootStat.isSymbolicLink()||!rootStat.isDirectory()) throw new Error('INVALID_SESSIONS_ROOT');
-  // Canonicalize the explicitly selected root once (macOS /var is an alias).
-  const root=await realpath(requestedRoot);
-  const verifyRoot=async()=>{
-    const [requested,current]=await Promise.all([lstat(requestedRoot),lstat(root)]);
-    for(const value of [requested,current]) {
-      if(!value.isDirectory()||value.isSymbolicLink()||value.dev!==rootStat.dev||value.ino!==rootStat.ino) throw new Error('SESSIONS_ROOT_CHANGED');
-    }
-    if(await realpath(requestedRoot)!==root) throw new Error('SESSIONS_ROOT_CHANGED');
-  };
-  await verifyRoot();
+  const workspace=path.resolve(project.workspacePath);
   let inspectedEntries=0,excludedFiles=0,truncated=false;
-  const records=new Map();
-  async function visit(directory,depth) {
+  const records=new Map(),unavailableSources=[];
+  async function scanSource(selectedRoot,scope) {
+    signal?.throwIfAborted();
+    const requestedRoot=path.resolve(selectedRoot);
+    const rootStat=await lstat(requestedRoot);
+    if(rootStat.isSymbolicLink()||!rootStat.isDirectory()) throw new Error('INVALID_SESSIONS_ROOT');
+    // Canonicalize the explicitly selected root once (macOS /var is an alias).
+    const root=await realpath(requestedRoot);
+    const verifyRoot=async()=>{
+      const [requested,current]=await Promise.all([lstat(requestedRoot),lstat(root)]);
+      for(const value of [requested,current]) {
+        if(!value.isDirectory()||value.isSymbolicLink()||value.dev!==rootStat.dev||value.ino!==rootStat.ino) throw new Error('SESSIONS_ROOT_CHANGED');
+      }
+      if(await realpath(requestedRoot)!==root) throw new Error('SESSIONS_ROOT_CHANGED');
+    };
+    await verifyRoot();
+    async function visit(directory,depth) {
+      signal?.throwIfAborted();
+      await verifyRoot();
+      const entries=await opendir(directory);
+      for await(const entry of entries) {
+        signal?.throwIfAborted();
+        if(inspectedEntries>=maxEntries) {truncated=true;break;}
+        inspectedEntries++;
+        const file=path.join(directory,entry.name);
+        if(entry.isSymbolicLink()) {excludedFiles++;continue;}
+        if(entry.isDirectory()) {
+          const valid=depth===0?/^20\d{2}$/.test(entry.name):depth===1?/^(0[1-9]|1[0-2])$/.test(entry.name):depth===2?/^(0[1-9]|[12]\d|3[01])$/.test(entry.name):false;
+          if(valid) {
+            try {
+              if(await realpath(file)!==file) throw new Error('SOURCE_CHANGED');
+              await visit(file,depth+1);
+            } catch {signal?.throwIfAborted();excludedFiles++;}
+            if(truncated) break;
+          }
+          continue;
+        }
+        if(!entry.name.endsWith('.jsonl')) continue;
+        try {
+          const metadata=await readMetadata(file,root,signal,verifyRoot);
+          const items=records.get(metadata.threadId)??[];
+          items.push({...metadata,scope,path:path.relative(root,file)});records.set(metadata.threadId,items);
+        } catch {signal?.throwIfAborted();excludedFiles++;}
+      }
+    }
+    await visit(root,0);
     signal?.throwIfAborted();
     await verifyRoot();
-    const entries=await opendir(directory);
-    for await(const entry of entries) {
-      signal?.throwIfAborted();
-      if(++inspectedEntries>maxEntries) {truncated=true;break;}
-      const file=path.join(directory,entry.name);
-      if(entry.isSymbolicLink()) {excludedFiles++;continue;}
-      if(entry.isDirectory()) {
-        const valid=depth===0?/^20\d{2}$/.test(entry.name):depth===1?/^(0[1-9]|1[0-2])$/.test(entry.name):depth===2?/^(0[1-9]|[12]\d|3[01])$/.test(entry.name):false;
-        if(valid) {
-          try {
-            if(await realpath(file)!==file) throw new Error('SOURCE_CHANGED');
-            await visit(file,depth+1);
-          } catch {excludedFiles++;}
-          if(truncated) break;
-        }
-        continue;
-      }
-      if(!entry.name.endsWith('.jsonl')) continue;
-      try {
-        const metadata=await readMetadata(file,root,signal,verifyRoot);
-        const items=records.get(metadata.threadId)??[];
-        items.push({...metadata,path:path.relative(root,file)});records.set(metadata.threadId,items);
-      } catch {excludedFiles++;}
+    return verifyRoot;
+  }
+  function excludeArchive(error) {
+    signal?.throwIfAborted();
+    unavailableSources.push({scope:'archived_sessions',code:error.code??error.message});
+    // A failed final identity check invalidates evidence collected from that root.
+    for(const [threadId,items] of records) {
+      const remaining=items.filter(item=>item.scope!=='archived_sessions');
+      if(remaining.length) records.set(threadId,remaining);else records.delete(threadId);
     }
   }
-  await visit(root,0);
+  const verifySessionsRoot=await scanSource(sessionsRoot,'sessions');
+  let verifyArchiveRoot;
+  if(archivedSessionsRoot!==undefined&&!truncated) {
+    try {verifyArchiveRoot=await scanSource(archivedSessionsRoot,'archived_sessions');}
+    catch(error) {excludeArchive(error);}
+  }
   signal?.throwIfAborted();
-  await verifyRoot();
+  await verifySessionsRoot();
+  if(verifyArchiveRoot) {
+    try {await verifyArchiveRoot();}
+    catch(error) {excludeArchive(error);}
+  }
+  signal?.throwIfAborted();
   const candidates=[],conflictingThreadIds=[];
   for(const [threadId,items] of records) {
     if(new Set(items.map(item=>item.workspacePath)).size!==1) {
@@ -108,10 +137,10 @@ export async function previewProjectConversations({sessionsRoot,project,existing
     const existingTaskIds=existing.filter(task=>task.projectId===project.id
       &&(task.threadId??task.threadBinding?.threadId??task.legacyLocalThreadId)===threadId).map(task=>task.id).sort();
     candidates.push({threadId,projectId:project.id,workspacePath:workspace,status:null,executionBinding:null,
-      existingTaskIds:[...new Set(existingTaskIds)],sourceFiles:items.map(item=>({path:item.path,headerSha256:item.headerSha256,timestamp:item.timestamp})).sort((a,b)=>a.path.localeCompare(b.path))});
+      existingTaskIds:[...new Set(existingTaskIds)],sourceFiles:items.map(item=>({scope:item.scope,path:item.path,headerSha256:item.headerSha256,timestamp:item.timestamp})).sort((a,b)=>a.scope.localeCompare(b.scope)||a.path.localeCompare(b.path))});
   }
   candidates.sort((a,b)=>a.threadId.localeCompare(b.threadId));conflictingThreadIds.sort();
-  return {schemaVersion:1,projectId:project.id,workspacePath:workspace,sourceScope:'sessions-only; metadata-first-line',
-    candidates,conflictingThreadIds,inspectedEntries,excludedFiles,truncated,
-    complete:!truncated&&!excludedFiles&&!conflictingThreadIds.length,saved:false,authorizesDispatch:false};
+  return {schemaVersion:1,projectId:project.id,workspacePath:workspace,sourceScope:archivedSessionsRoot===undefined?'sessions-only; metadata-first-line':'sessions+archived_sessions; metadata-first-line',
+    candidates,conflictingThreadIds,inspectedEntries,excludedFiles,truncated,unavailableSources,
+    complete:!truncated&&!excludedFiles&&!conflictingThreadIds.length&&!unavailableSources.length,saved:false,authorizesDispatch:false};
 }

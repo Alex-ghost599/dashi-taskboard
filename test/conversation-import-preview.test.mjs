@@ -108,3 +108,79 @@ test('conflicts entirely outside the selected project do not disclose their thre
   assert.ok(!JSON.stringify(result).includes(second));
   assert.equal(result.candidates.length,1);
 });
+
+async function archiveFixture(t) {
+  const data=await fixture(t);
+  const archived=path.join(data.root,'archived_sessions');await mkdir(archived);
+  const addArchived=async(name,id,cwd,directory='')=>{
+    await mkdir(path.join(archived,directory),{recursive:true});
+    await writeFile(path.join(archived,directory,name+'.jsonl'),JSON.stringify({type:'session_meta',payload:{id,cwd}})+'\n');
+  };
+  return {...data,archived,addArchived};
+}
+
+test('active and archived copies deduplicate with distinct evidence even when relative paths collide',async t=>{
+  const {sessions,archived,workspace,add,addArchived}=await archiveFixture(t);
+  await add('same',first,workspace);
+  await addArchived('same',first,workspace,'2026/10/02');
+  await addArchived('flat',second,workspace);
+  const result=await previewProjectConversations({sessionsRoot:sessions,archivedSessionsRoot:archived,project:{id:'p1',workspacePath:workspace}});
+  assert.deepEqual(result.candidates.map(item=>item.threadId),[first,second]);
+  assert.deepEqual(result.candidates[0].sourceFiles.map(item=>({scope:item.scope,path:item.path})),[
+    {scope:'archived_sessions',path:'2026/10/02/same.jsonl'},
+    {scope:'sessions',path:'2026/10/02/same.jsonl'},
+  ]);
+  assert.equal(result.candidates[1].sourceFiles[0].scope,'archived_sessions');
+  assert.equal(result.candidates[1].sourceFiles[0].path,'flat.jsonl');
+  assert.equal(result.complete,true);
+  assert.equal(result.sourceScope,'sessions+archived_sessions; metadata-first-line');
+  assert.equal(result.saved,false);assert.equal(result.authorizesDispatch,false);
+});
+
+test('a cwd conflict across active and archived sources excludes the shared thread id',async t=>{
+  const {sessions,archived,workspace,add,addArchived}=await archiveFixture(t);
+  await add('active',first,workspace);await addArchived('archived',first,workspace+'-other');
+  const result=await previewProjectConversations({sessionsRoot:sessions,archivedSessionsRoot:archived,project:{id:'p1',workspacePath:workspace}});
+  assert.deepEqual(result.candidates,[]);
+  assert.deepEqual(result.conflictingThreadIds,[first]);assert.equal(result.complete,false);
+});
+
+test('an explicitly requested missing archive reports incomplete coverage while retaining active candidates',async t=>{
+  const {root,sessions,workspace,add}=await fixture(t);await add('active',first,workspace);
+  const result=await previewProjectConversations({sessionsRoot:sessions,archivedSessionsRoot:path.join(root,'missing'),project:{id:'p1',workspacePath:workspace}});
+  assert.equal(result.complete,false);
+  assert.deepEqual(result.unavailableSources,[{scope:'archived_sessions',code:'ENOENT'}]);
+  assert.equal(result.candidates[0].threadId,first);
+});
+
+test('an unreadable archive root reports its failure without treating it as complete history',async t=>{
+  const {root,sessions,workspace}=await fixture(t);
+  const archived=path.join(root,'archive-file');await writeFile(archived,'not a directory');
+  const result=await previewProjectConversations({sessionsRoot:sessions,archivedSessionsRoot:archived,project:{id:'p1',workspacePath:workspace}});
+  assert.equal(result.complete,false);
+  assert.deepEqual(result.unavailableSources,[{scope:'archived_sessions',code:'INVALID_SESSIONS_ROOT'}]);
+});
+
+test('omitting archive selection keeps the active scope and leaves existing archived files unscanned',async t=>{
+  const {sessions,workspace,add,addArchived}=await archiveFixture(t);
+  await add('active',first,workspace);await addArchived('archived',second,workspace);
+  const result=await previewProjectConversations({sessionsRoot:sessions,project:{id:'p1',workspacePath:workspace}});
+  assert.deepEqual(result.candidates.map(item=>item.threadId),[first]);
+  assert.equal(result.sourceScope,'sessions-only; metadata-first-line');
+  assert.equal(result.candidates[0].sourceFiles[0].scope,'sessions');
+  assert.equal(result.complete,true);
+});
+
+test('active and archived sources share one directory-entry budget',async t=>{
+  const {sessions,archived,workspace,add,addArchived}=await archiveFixture(t);
+  await add('active',first,workspace);await addArchived('archived',second,workspace);
+  const result=await previewProjectConversations({sessionsRoot:sessions,archivedSessionsRoot:archived,project:{id:'p1',workspacePath:workspace},maxEntries:4});
+  assert.equal(result.truncated,true);assert.equal(result.complete,false);
+  assert.deepEqual(result.candidates.map(item=>item.threadId),[first]);
+  assert.equal(result.inspectedEntries,4);
+});
+
+test('archive selection rejects relative paths instead of silently ignoring caller scope',async t=>{
+  const {sessions,workspace}=await fixture(t);
+  await assert.rejects(previewProjectConversations({sessionsRoot:sessions,archivedSessionsRoot:'relative',project:{id:'p1',workspacePath:workspace}}),/INVALID_PREVIEW_SCOPE/);
+});

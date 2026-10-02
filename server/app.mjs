@@ -1705,6 +1705,7 @@ export function resolveServerOptions(options = {}) {
       ?? path.join(PROJECT_ROOT, "skills", "manage-taskboard", "SKILL.md"),
     codexExecutable: resolveCodexExecutable({ explicit: options.codexExecutable }),
     conversationSessionsRoot: options.conversationSessionsRoot ?? path.join(codexHome, "sessions"),
+    conversationArchivedSessionsRoot: options.conversationArchivedSessionsRoot ?? path.join(codexHome, "archived_sessions"),
     codexStatePath: options.codexStatePath
       ?? path.join(codexHome, ".codex-global-state.json"),
     codexProcessesPath: options.codexProcessesPath
@@ -2202,10 +2203,14 @@ export function createTaskboardServer(options = {}) {
 
       if (pathname === "/api/local/conversation-import-preview") {
         if (request.method !== "GET") return methodNotAllowed(response, ["GET"]);
-        if ([...url.searchParams.keys()].some(key => key !== "projectId")) {
-          throw new ApiError(400, "UNKNOWN_QUERY_PARAMETER", "Only projectId is accepted");
+        if ([...url.searchParams.keys()].some(key => key !== "projectId" && key !== "includeArchived")) {
+          throw new ApiError(400, "UNKNOWN_QUERY_PARAMETER", "Only projectId and includeArchived are accepted");
         }
         const projectId = url.searchParams.get("projectId");
+        const includeArchived = url.searchParams.get("includeArchived");
+        if (includeArchived !== null && includeArchived !== "true" && includeArchived !== "false") {
+          throw new ApiError(400, "INVALID_ARCHIVE_SCOPE", "includeArchived must be true or false");
+        }
         validateProjectId(projectId);
         const project = database.getProject(projectId);
         if (!project) throw new ApiError(404, "PROJECT_NOT_FOUND", "Project does not exist");
@@ -2222,6 +2227,7 @@ export function createTaskboardServer(options = {}) {
         try {
           return sendJson(response, 200, await previewProjectConversations({
             sessionsRoot: resolved.conversationSessionsRoot, project,
+            ...(includeArchived === "true" ? { archivedSessionsRoot: resolved.conversationArchivedSessionsRoot } : {}),
             signal: AbortSignal.any([controller.signal, AbortSignal.timeout(5000)]),
             existing: database.listTasks({ projectId }),
           }));
