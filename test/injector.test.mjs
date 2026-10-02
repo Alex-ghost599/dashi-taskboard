@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { EventEmitter, once } from "node:events";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import os from "node:os";
+import path from "node:path";
+import { promisify } from "node:util";
 import { test } from "node:test";
 import vm from "node:vm";
 import { isCodexTarget } from "../scripts/codex-target-trust.mjs";
@@ -17,6 +21,37 @@ const supervisorSource = await readFile(
 const packageJson = JSON.parse(
   await readFile(new URL("../package.json", import.meta.url), "utf8"),
 );
+const execFileAsync = promisify(execFile);
+
+// Run the actual npm script chains in a disposable package; every tool is a recording stub.
+// The real injector is never copied or executed, including when the old build calls it.
+async function recordedPackageScript(t, script) {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "injector-build scripts-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const bin = path.join(directory, "node_modules", ".bin"), scripts = path.join(directory, "scripts");
+  await mkdir(bin, { recursive: true }); await mkdir(scripts);
+  await writeFile(path.join(directory, "package.json"), JSON.stringify({
+    name: "isolated-script-recording", version: "1.0.0", type: "module", scripts: packageJson.scripts,
+  }));
+  const log = path.join(directory, "calls.jsonl"), stub = path.join(scripts, "record-tool.mjs");
+  const record = 'import {appendFileSync} from "node:fs";\n'
+    + 'appendFileSync(process.env.TASKBOARD_SCRIPT_TEST_LOG, JSON.stringify({tool:process.argv[2],args:process.argv.slice(3)})+"\\n");\n';
+  await writeFile(stub, record);
+  for (const tool of ["vite", "tsc", "vitest"]) {
+    if (process.platform === "win32") {
+      await writeFile(path.join(bin, `${tool}.cmd`), `@echo off\r\n"%TASKBOARD_SCRIPT_TEST_NODE%" "%TASKBOARD_SCRIPT_TEST_STUB%" ${tool} %*\r\n`);
+    } else {
+      await writeFile(path.join(bin, tool), `#!/bin/sh\nexec "$TASKBOARD_SCRIPT_TEST_NODE" "$TASKBOARD_SCRIPT_TEST_STUB" ${tool} "$@"\n`, { mode: 0o755 });
+    }
+  }
+  await writeFile(path.join(scripts, "codex-injector.mjs"), record.replace('process.argv[2]', '"injector"').replace('process.argv.slice(3)', 'process.argv.slice(2)'));
+  await writeFile(path.join(scripts, "run-node-tests.mjs"), record.replace('process.argv[2]', '"test:node"').replace('process.argv.slice(3)', 'process.argv.slice(2)'));
+  await execFileAsync(process.platform === "win32" ? "npm.cmd" : "npm", ["run", script, "--silent"], {
+    cwd: directory, timeout: 20000, shell: process.platform === "win32",
+    env: { ...process.env, TASKBOARD_SCRIPT_TEST_NODE: process.execPath, TASKBOARD_SCRIPT_TEST_STUB: stub, TASKBOARD_SCRIPT_TEST_LOG: log },
+  });
+  return (await readFile(log, "utf8")).trim().split("\n").map(line => JSON.parse(line));
+}
 
 test("the resident injector authenticates its launcher-managed Taskboard service", () => {
   assert.match(supervisorSource, /function createTaskboardSupervisor/);
@@ -339,9 +374,21 @@ test("the injector ignores auxiliary Codex windows", () => {
   }
 });
 
-test("a completed web build refreshes an already-open Codex iframe", () => {
-  assert.match(packageJson.scripts.build, /--refresh-if-running/);
-  assert.match(packageJson.scripts["codex:refresh"], /--refresh/);
+test("a completed build runs only the web compiler without calling the injector", async t => {
+  const calls = await recordedPackageScript(t, "build");
+  assert.deepEqual(calls, [{ tool: "vite", args: ["build", "--config", "web/vite.config.ts"] }]);
+});
+
+test("the check chain runs typecheck, pure build and tests without calling the injector", async t => {
+  const calls = await recordedPackageScript(t, "check");
+  assert.deepEqual(calls.map(call => call.tool), ["tsc", "vite", "test:node", "vitest"]);
+  assert.deepEqual(calls[0].args, ["-p", "web/tsconfig.json", "--noEmit"]);
+  assert.deepEqual(calls[1].args, ["build", "--config", "web/vite.config.ts"]);
+  assert.equal(calls[3].args[0], "run");
+});
+
+test("explicit codex refresh retains its existing injector command and frame refresh support", async t => {
+  assert.deepEqual(await recordedPackageScript(t, "codex:refresh"), [{ tool: "injector", args: ["--refresh"] }]);
   assert.match(source, /async function refreshTaskboardFrames/);
   assert.match(source, /function codexDebuggingPorts/);
   assert.match(source, /--remote-debugging-port=/);
