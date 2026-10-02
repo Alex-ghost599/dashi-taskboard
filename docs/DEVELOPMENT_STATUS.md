@@ -182,3 +182,7 @@ OBS-03 CI诊断：PR57首轮check在既有AiChat中断用例失败，WAIT模拟�
 父任务工作区界面候选已接入：组件 39/39、全 Node 585 项中 584 通过与 1 跳过，typecheck/build:web 通过；独立增量审核 Critical 0 / Important 0。根/直属子/孙层级、真实 Gantt、其他状态面板、Dashboard 当前层统计、详情及历史导航、嵌套建卡/评论与 CLI 同库、未知父 ID 和归档祖先只读已在隔离服务实际点击验证。尚未进行正式 App 安装与最终发布。归档只读约束作用于任务编辑和 AI 入口，全局项目管理仍保留；Dashboard 的 Codex 项目摘要仍属于项目级内容。
 
 隔离服务同库重启后，5 张测试卡、父关联、归档祖先和 1 条评论均保留，CLI 与 UI 一致；独立备份副本 integrity_check=ok，数据未覆盖原库。首轮保持浏览器连接时，监听已停止但关闭流程未完成，只对已核实的自有进程使用 SIGKILL，退出137；第二轮先关闭测试标签页再 SIGTERM，退出0。两次顺序差异已记录，尚未证明退出阻塞的根因；不影响或重启已有 Codex。
+
+## 双库备份独立修复候选
+
+安装器此前仅在线备份 taskboard.sqlite，遗漏 execution-control.sqlite；现将两个已知库在同一写锁窗口备份，保留附件同扩展文件，拒绝数据库持有者、根目录或内部符号链接及非普通数据库文件。11 项隔离 Python 测试通过，独立 validation-only reviewer 对新 develop 基线整合为 Critical 0 / Important 0；额外 schema4、权限、持有者错误和替换失败恢复探针通过。仅覆盖源码及合成运行，远端 Check/macOS/Windows/Ubuntu CI 已通过，真实 macOS 安装与恢复待验收。此独立修复不包含绑定 schema5 和 CDP 候选，也不据此关闭 Issue #34。
