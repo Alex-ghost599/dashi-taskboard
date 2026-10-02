@@ -285,3 +285,10 @@ Issue #22 的空项目 UI 范围已验收；其后来补充的真实 host/projec
 
 
 隔离 Chrome 回归补测四项通过（含保留的布局、外链和恶意导航撤权）：无关 DOM mutation 后 frame 对象、window/name、加载请求与 load 事件不变；替换宿主 surface 后恰一次重建，后续稳定；停止心跳超过八秒时空闲 frame 不导航且不自行显示遮罩，明确重新打开后仅显示服务未就绪错误，frame 身份和加载次数不变。每个测试使用独立临时 profile、调试 pipe 与 loopback fixture，自建子进程均退出、服务关闭、profile移除。生产注入脚本未变，此为已有行为补测，首次即绿，无生产失败前证据；fixture通过srcdoc模拟文档加载，不能替代生产CDP文档安装或日常Codex的UI复现。新增测试经独立Node 22复验4/4通过、0跳过，独立审核Critical 0 / Important 0；Issue #19 保持开放。
+
+
+## Issue #16：来源会话的候选门禁（2026-10-03）
+
+原生扫描曾将卡片thread_*来源字段投影为执行绑定，完整字段会通过候选形状检查。本轮最小修复停止这项投影；任意非NULL来源字段（含空串）均标记执行归属未核验，候选明确拒绝SOURCE_BINDING_UNVERIFIED。专用可信执行绑定reader尚未接入，不能只清空绑定后允许该卡进入候选。标记true纳入语义摘要使旧判断失效；缺省/false保留同一缓存语义，畸形值安全拒绝。
+
+缺陷回归先17项12通过/5失败，再修复后相关六文件37/37通过（Node22）。全部评论继续作为语义输入；Agent评论和类似回执的正文也可能含有效指令，现有comments没有用途字段，不能凭作者或文字前缀过滤。独立task_activities不改变判断摘要的回归通过。此阶段无数据库迁移、生产接线、模型或真实任务派发；完整Node22 npm test共682项、681通过/1既有跳过/0失败，组件66/66与typecheck通过；独立源码/文档及Node22相关37项复验Critical0/Important0；最新develop整合仍待，不关闭Issue16/17。
