@@ -112,11 +112,15 @@ it("an archived-only project explains the existing archive without offering impo
   expect(await screen.findByText("Previous archived card")).toBeTruthy();
 });
 it("a confirmed empty project offers import, but a failed refresh removes that success prompt", async () => {
+  const catalog = deferred<Awaited<ReturnType<typeof api.getAiChatCatalog>>>();
+  vi.mocked(api.getAiChatCatalog).mockReturnValue(catalog.promise);
   vi.mocked(api.listTasks).mockResolvedValue([]);
   vi.mocked(api.listArchivedTasks).mockResolvedValue([]);
   render(<App />);
   await screen.findByRole("heading", { name: "This project has no issues yet" });
-  expect(screen.getByRole("button", { name: "Prepare AI organization request" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Prepare AI organization request" })).toBeNull();
+  await act(async () => catalog.resolve({ models: [], skills: [], sandboxes: [] }));
+  expect(await screen.findByRole("button", { name: "Prepare AI organization request" })).toBeTruthy();
   vi.mocked(api.listTasks).mockRejectedValue(new Error("Synthetic refresh failure"));
   act(() => realtime.invalidate());
   await screen.findByText("Synthetic refresh failure");
