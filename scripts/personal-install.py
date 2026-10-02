@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Reversible current-user install; never install a dirty-source artifact."""
 from pathlib import Path
-import datetime, json, plistlib, shutil, sqlite3, subprocess
+import datetime, json, os, plistlib, shutil, subprocess
+from personal_backup import backup_personal_data, DATABASES
+os.umask(0o077)
 root = Path(__file__).resolve().parent.parent
 source = Path((root / '.local-deploy/artifact-path').read_text().strip())
 home = Path.home()
@@ -20,14 +22,16 @@ if target.exists():
     info=plistlib.loads((target / 'Contents/Info.plist').read_bytes())
     if info.get('CFBundleIdentifier') != 'com.alexghost599.dashi-taskboard-personal':
         raise SystemExit('Same-name App belongs to another source; not replacing')
-backup.mkdir(parents=True, exist_ok=False)
-if data.exists():
-    shutil.copytree(data, backup / 'data', ignore=shutil.ignore_patterns('*.sqlite*'))
-    db=data / 'taskboard.sqlite'
-    if db.exists():
-        with sqlite3.connect(db) as src, sqlite3.connect(backup / 'data/taskboard.sqlite') as dest:
-            src.backup(dest)
-            assert dest.execute('pragma integrity_check').fetchone()[0] == 'ok'
+# A leftover standalone service must also be stopped before replacing the App.
+database_paths = [str(data / name) for name in DATABASES if (data / name).exists()]
+if database_paths:
+    holders = subprocess.run(['lsof', '-t', '--', *database_paths], capture_output=True, text=True)
+    if holders.returncode == 0 and holders.stdout.strip():
+        raise SystemExit('Stop all holders of personal databases before installing')
+    if holders.returncode not in (0, 1) or holders.stderr.strip():
+        raise SystemExit('Cannot verify personal database holders; installation refused')
+backup.mkdir(parents=True, mode=0o700, exist_ok=False)
+database_manifest = backup_personal_data(data, backup / 'data') if data.exists() else []
 target.parent.mkdir(parents=True, exist_ok=True)
 # Copy to a unique sibling first; old App remains usable if the copy fails.
 staged = target.parent / ('Dashi Taskboard Personal-staging-' + backup.name + '.app')
@@ -39,6 +43,6 @@ except BaseException:
     if not target.exists() and (backup / target.name).exists():
         shutil.move(backup / target.name, target)
     raise
-receipt={'installed':str(target),'backup':str(backup),'source':provenance}
+receipt={'installed':str(target),'backup':str(backup),'source':provenance,'databases':database_manifest}
 (backup / 'install-receipt.json').write_text(json.dumps(receipt,indent=2))
 print(json.dumps(receipt,indent=2))
