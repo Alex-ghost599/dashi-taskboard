@@ -274,6 +274,18 @@ Issue #22 的空项目 UI 范围已验收；其后来补充的真实 host/projec
 
 合成重启与恢复验收及完整来源契约见 [CONVERSATION_IMPORT_PREVIEW.md](CONVERSATION_IMPORT_PREVIEW.md)；测试结果见 DEVELOPMENT_STATUS.md。
 
+
+## Issue #19：构建与显式刷新分离
+
+已确认的工程触发为旧 `npm run build` 在 Vite 构建后运行注入器 `--refresh-if-running`；`check` 也调用 `build`。存在可达且已挂载的 Codex 看板目标时，它可能重建 iframe，旧刷新路径还可替换 resident injector。个人 `--external-service` 对刷新组合的拒绝只保护该入口，普通构建没有这项保护。
+
+本轮修复范围是让默认 `build/check` 只完成工程检查，保留已有 `npm run codex:refresh` 的明确刷新入口及原 `--refresh` 语义。该显式命令仍会影响可达看板页面，使用前检查实例和运行中任务；它不等同于旧 `--refresh-if-running` 的 resident replacement。个人源码 App 构建原已使用 `build:web`。
+
+历史静止重加载根因仍未知。已查常规心跳和 quiet 数据更新没有无条件整页导航；宿主挂载容器变化可以重建 iframe，`Page.setDocumentContent` 也需纳入观测。后续需将可见现象、文档/iframe身份、心跳和服务代次对齐；此工程触发修复不代表历史重加载已全部解决。默认构建隐式刷新已移除；隔离 npm fixture 在旧配置下两项失败，修改后相关17项通过，typecheck/build:web通过。fixture只运行记录用stub，不接触真实注入器；Windows脚本执行尚待CI。DOM/心跳补测通过，独立审核Critical 0 / Important 0；Issue #19 保持开放。
+
+
+隔离 Chrome 回归补测四项通过（含保留的布局、外链和恶意导航撤权）：无关 DOM mutation 后 frame 对象、window/name、加载请求与 load 事件不变；替换宿主 surface 后恰一次重建，后续稳定；停止心跳超过八秒时空闲 frame 不导航且不自行显示遮罩，明确重新打开后仅显示服务未就绪错误，frame 身份和加载次数不变。每个测试使用独立临时 profile、调试 pipe 与 loopback fixture，自建子进程均退出、服务关闭、profile移除。生产注入脚本未变，此为已有行为补测，首次即绿，无生产失败前证据；fixture通过srcdoc模拟文档加载，不能替代生产CDP文档安装或日常Codex的UI复现。新增测试经独立Node 22复验4/4通过、0跳过，独立审核Critical 0 / Important 0；Issue #19 保持开放。
+
 ## 列头可读性候选（Issue #37）
 
 两文件只修改前端列头字号、活动状态图标和点击区域，数据格式及服务协议不变。合成浏览器验证浅深主题与720px窄窗口；临时页面级主题/视口模拟已清除，未写共享系统设置。归档删除图标仍14px，卡片文字和原配色保持。候选未安装；更新与回滚沿用匹配的App/数据备份流程，实体4K另行现场验收。

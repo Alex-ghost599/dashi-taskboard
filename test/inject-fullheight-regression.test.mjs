@@ -48,7 +48,81 @@ async function chromeExecutable() {
   return null;
 }
 
-function fixtureHtml(origin) {
+async function observeFrameLifecycle(scenario, stopHeartbeat) {
+  const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+  const waitUntil = async (predicate) => {
+    const deadline = Date.now() + 5_000;
+    while (!predicate()) {
+      if (Date.now() >= deadline) throw new Error("Frame lifecycle fixture did not settle");
+      await wait(20);
+    }
+  };
+  await waitUntil(() => window.__codexTaskboardInjection__.ready
+    && document.getElementById("codex-taskboard-frame")?.hidden === false);
+  await wait(400);
+  const initialFrame = document.getElementById("codex-taskboard-frame");
+  const initialWindow = initialFrame.contentWindow;
+  const initialName = initialFrame.name;
+  const initialLoads = window.__loadFrameRequests;
+  const initialLoadEvents = window.__frameLoadEvents;
+  const initialTimeOrigin = performance.timeOrigin;
+  const initialUrl = location.href;
+  const snapshot = () => {
+    const frame = document.getElementById("codex-taskboard-frame");
+    return {
+      sameFrame: frame === initialFrame,
+      sameWindow: frame?.contentWindow === initialWindow,
+      sameName: frame?.name === initialName,
+      loadRequests: window.__loadFrameRequests - initialLoads,
+      loadEvents: window.__frameLoadEvents - initialLoadEvents,
+      frameVisible: frame?.hidden === false,
+      statusHidden: document.getElementById("codex-taskboard-status")?.hidden === true,
+      hostDocumentUnchanged: performance.timeOrigin === initialTimeOrigin && location.href === initialUrl,
+    };
+  };
+
+  let result;
+  if (scenario === "mutation") {
+    const unrelated = document.getElementById("result");
+    for (let index = 0; index < 5; index += 1) {
+      unrelated.className = `unrelated-${index}`;
+      unrelated.setAttribute("aria-label", `Unrelated ${index}`);
+    }
+    await wait(600);
+    result = { afterMutation: snapshot() };
+  } else if (scenario === "remount") {
+    const surface = document.getElementById("surface");
+    const replacement = document.createElement("div");
+    replacement.id = "surface";
+    replacement.appendChild(surface.querySelector("[data-app-shell-main-content-layout]").cloneNode(true));
+    surface.replaceWith(replacement);
+    await waitUntil(() => window.__loadFrameRequests > initialLoads
+      && window.__codexTaskboardInjection__.ready);
+    await wait(600);
+    result = {
+      afterReplacement: snapshot(),
+      pageMountedOnReplacement: document.getElementById("codex-taskboard-page")?.parentElement === replacement,
+    };
+    await wait(600);
+    result.afterSettling = snapshot();
+  } else if (scenario === "heartbeat") {
+    stopHeartbeat();
+    // Deliver any already-posted heartbeat, then exceed the production 8 s age limit.
+    await wait(0);
+    await wait(8_200);
+    result = { afterIdle: snapshot() };
+    window.__codexTaskboardInjection__.open();
+    await waitUntil(() => document.getElementById("codex-taskboard-status")?.hidden === false);
+    await wait(400);
+    result.afterReopen = snapshot();
+    result.errorText = document.getElementById("codex-taskboard-status")?.textContent;
+  } else {
+    throw new Error(`Unknown frame lifecycle scenario: ${scenario}`);
+  }
+  return { initialLoads, initialLoadEvents, ...result, injectionError: window.__injectionError };
+}
+
+function fixtureHtml(origin, scenario) {
   const encodedSource = Buffer.from(source).toString("base64");
   return `<!doctype html>
 <html>
@@ -101,6 +175,9 @@ function fixtureHtml(origin) {
       window.__CODEX_TASKBOARD_INSTANCE_SECRET__ = ${JSON.stringify(instanceSecret)};
       window.__CODEX_TASKBOARD_HOST_CAPABILITY__ = "fullheight-host-capability";
       window.__CODEX_TASKBOARD_SOURCE_HASH__ = "fullheight-regression";
+      window.__fixtureScenario = ${JSON.stringify(scenario)};
+      window.__loadFrameRequests = 0;
+      window.__frameLoadEvents = 0;
       window.__browserPanelClosed = false;
       window.__injectionError = null;
       window.__frameMessages = [];
@@ -126,7 +203,9 @@ function fixtureHtml(origin) {
         ) {
           const request = event.data.payload;
           if (request.action === "load-frame") {
+            window.__loadFrameRequests += 1;
             const frame = document.querySelector('iframe[name="' + request.frameName + '"]');
+            frame.addEventListener("load", () => { window.__frameLoadEvents += 1; });
             frame.srcdoc = '<a id="external-link" href="https://example.com/review" target="_blank">Review</a>'
               + '<script>'
               + ${JSON.stringify(embeddedHostClassicSource)}
@@ -139,6 +218,7 @@ function fixtureHtml(origin) {
               + 'acknowledgedChallenge=challenge;setEmbeddedFrameChallenge(challenge);'
               + 'postEmbeddedHostMessage({type:"taskboard:ready"});'
               + 'if(activated)return;activated=true;'
+              + ${JSON.stringify(scenario === "security" ? "" : "return;")}
               + 'parent.postMessage({type:"taskboard:ready"},"*");'
               + 'parent.postMessage({type:"taskboard:open-thread",payload:{threadId:"forged"}},"*");'
               + 'document.getElementById("external-link").click();'
@@ -194,6 +274,22 @@ function fixtureHtml(origin) {
           window.__resolveHostileNavigationLoaded = resolve;
         });
         entry?.click();
+        if (window.__fixtureScenario !== "security") {
+          const report = (result) => {
+            const bytes = new TextEncoder().encode(JSON.stringify(result));
+            document.getElementById("result").textContent = btoa(String.fromCharCode(...bytes));
+          };
+          try {
+            const result = await (${observeFrameLifecycle.toString()})(window.__fixtureScenario, () => clearInterval(heartbeatTimer));
+            report(result);
+          } catch (error) {
+            report({ fixtureError: error.stack || String(error) });
+          } finally {
+            clearInterval(heartbeatTimer);
+            window.__codexTaskboardInjection__?.destroy();
+          }
+          return;
+        }
         await hostileNavigationLoaded;
 
         const page = document.getElementById("codex-taskboard-page");
@@ -227,7 +323,7 @@ function fixtureHtml(origin) {
 </html>`;
 }
 
-test("Taskboard fills the workspace, opens HTTPS links and revokes hostile iframe navigation", async (t) => {
+async function runFixture(t, scenario) {
   const chrome = await chromeExecutable();
   if (!chrome) {
     t.skip("Chrome or Chromium is not installed");
@@ -262,16 +358,24 @@ test("Taskboard fills the workspace, opens HTTPS links and revokes hostile ifram
     }
     const origin = `http://127.0.0.1:${server.address().port}`;
     response.setHeader("content-type", "text/html; charset=utf-8");
-    response.end(fixtureHtml(origin));
+    response.end(fixtureHtml(origin, scenario));
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   t.after(() => new Promise((resolve) => {
-    server.close(resolve);
+    server.close(() => {
+      assert.equal(server.listening, false);
+      t.diagnostic("Closed isolated loopback fixture server");
+      resolve();
+    });
     server.closeAllConnections();
   }));
 
   const profile = await mkdtemp(path.join(os.tmpdir(), "taskboard-fullheight-chrome-"));
-  t.after(() => rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  t.after(async () => {
+    await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    await assert.rejects(access(profile), { code: "ENOENT" });
+    t.diagnostic(`Removed isolated Chrome profile: ${profile}`);
+  });
   const url = `http://127.0.0.1:${server.address().port}/fixture`;
   const child = spawn(chrome, [
     "--headless=new",
@@ -319,10 +423,17 @@ test("Taskboard fills the workspace, opens HTTPS links and revokes hostile ifram
       if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
       await exited;
     }
+    assert.ok(child.exitCode !== null || child.signalCode !== null, "Owned Chrome child did not exit");
+    t.diagnostic(`Owned Chrome child ${child.pid} exited (${child.signalCode || child.exitCode})`);
   }
 
   assert.ok(encodedResult, "fixture did not report an injection result");
-  const result = JSON.parse(Buffer.from(encodedResult, "base64").toString("utf8"));
+  return JSON.parse(Buffer.from(encodedResult, "base64").toString("utf8"));
+}
+
+test("Taskboard fills the workspace, opens HTTPS links and revokes hostile iframe navigation", async (t) => {
+  const result = await runFixture(t, "security");
+  if (!result) return;
   assert.deepEqual(result, {
     panelVisibleBefore: true,
     browserPanelClosed: true,
@@ -347,4 +458,58 @@ test("Taskboard fills the workspace, opens HTTPS links and revokes hostile ifram
     forgedThreadOpened: false,
     injectionError: null,
   });
+});
+
+function assertUnchangedFrame(snapshot, { frameVisible = true, statusHidden = true } = {}) {
+  assert.deepEqual(snapshot, {
+    sameFrame: true,
+    sameWindow: true,
+    sameName: true,
+    loadRequests: 0,
+    loadEvents: 0,
+    frameVisible,
+    statusHidden,
+    hostDocumentUnchanged: true,
+  });
+}
+
+test("unrelated DOM mutations preserve the ready iframe and do not load another document", async (t) => {
+  const result = await runFixture(t, "mutation");
+  if (!result) return;
+  assert.equal(result.fixtureError, undefined);
+  assert.ok(result.initialLoads > 0);
+  assert.ok(result.initialLoadEvents > 0);
+  assert.equal(result.injectionError, null);
+  assertUnchangedFrame(result.afterMutation);
+});
+
+test("replacing the host surface rebuilds the iframe exactly once after mutations settle", async (t) => {
+  const result = await runFixture(t, "remount");
+  if (!result) return;
+  assert.equal(result.fixtureError, undefined);
+  assert.ok(result.initialLoads > 0);
+  assert.ok(result.initialLoadEvents > 0);
+  assert.equal(result.injectionError, null);
+  assert.equal(result.pageMountedOnReplacement, true);
+  assert.equal(result.afterReplacement.sameFrame, false);
+  assert.equal(result.afterReplacement.sameWindow, false);
+  assert.equal(result.afterReplacement.sameName, false);
+  assert.equal(result.afterReplacement.loadRequests, 1);
+  assert.ok(result.afterReplacement.loadEvents > 0);
+  assert.equal(result.afterReplacement.frameVisible, true);
+  assert.equal(result.afterReplacement.statusHidden, true);
+  assert.equal(result.afterReplacement.hostDocumentUnchanged, true);
+  assert.deepEqual(result.afterSettling, result.afterReplacement);
+});
+
+test("expired idle heartbeat preserves the iframe and reopening only shows a host error", async (t) => {
+  const result = await runFixture(t, "heartbeat");
+  if (!result) return;
+  assert.equal(result.fixtureError, undefined);
+  assert.ok(result.initialLoads > 0);
+  assert.ok(result.initialLoadEvents > 0);
+  assert.equal(result.injectionError, null);
+  assertUnchangedFrame(result.afterIdle);
+  assertUnchangedFrame(result.afterReopen, { frameVisible: false, statusHidden: false });
+  assert.match(result.errorText, /任务面板服务未就绪|Taskboard service is not ready/);
 });
