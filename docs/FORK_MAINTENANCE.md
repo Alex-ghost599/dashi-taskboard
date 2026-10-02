@@ -55,3 +55,5 @@ Issue #7 的兼容补丁将原生 preload 回调与网页 postMessage 分开验�
 
 ## Obsidian 个人扩展（2026-09-15）
 身份契约、显式清单预览与独立只读派生索引分别见 OBSIDIAN_TASK_CONTRACT.md、OBSIDIAN_IMPORT_PREVIEW.md、OBSIDIAN_READONLY_INDEX.md。上游同步必须保留精确项目映射、历史身份冲突、无自动删除/派发的约束；索引 CAS 不保证源文件写入安全。中央协议/模板的本机兼容指导由 OBSIDIAN_AGENT_GUIDANCE.md 记录，私人路径与备份留本机，不从 Git checkout 覆盖共享指导或历史任务。#29 双向写回和正式同步仍待单独实现、审核与验收。
+
+2026-10-02 发布验收采用已合入 develop 的 9265e1de53844943fe639d7a6e51e5657d4ab0ba 干净源码安装。运行产物 SHA 与之后的纯验收文档提交分别记录，禁止将文档提交 SHA 冒充构建来源；main 晋级仍要求 fast-forward 和独立验收。具体证据范围见 DEVELOPMENT_STATUS.md 与 LOCAL_DEPLOYMENT.md。
