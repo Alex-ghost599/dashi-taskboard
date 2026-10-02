@@ -251,3 +251,15 @@ PR #67 的四项 CI 成功并合入 `9265e1de53844943fe639d7a6e51e5657d4ab0ba`�
 Issue #22 的空项目 UI 范围已验收；其后来补充的真实 host/project/cwd 派发身份门槛仍随自动化主线验证，Issue 保持开放。安装版空项目对应 CLI 的零卡片，显示明确空项目提示；菜单显示项目路径和 ID。相同名称、归档、失败刷新与层级优先级使用此前隔离真实 UI 和组件回归证据，未在正式数据中制造故障。Issue #38：有效设备目录下未触碰表单选中 main，明确清空后关闭重开保持空值；App 重启后的常用优先级、标签保持。表单草稿存于应用内存，重启初始化新草稿并重新选择当前分支；仅常用优先级和标签持久化。未保存表单不增加正式卡，执行授权与高推理特批不由这些默认值产生。保存 main/null 的路径由此前隔离 UI 与 API 对照覆盖。
 
 此段记录安装源码 SHA；后续仅文档提交不改变该安装产物。正式数据当前只有 taskboard.sqlite，execution-control.sqlite 双库备份仍使用合成证据。日常 CDP 及绑定 RPC、会话导入完整保存均另行验收。
+
+
+## Issue #19：构建与显式刷新分离
+
+已确认的工程触发为旧 `npm run build` 在 Vite 构建后运行注入器 `--refresh-if-running`；`check` 也调用 `build`。存在可达且已挂载的 Codex 看板目标时，它可能重建 iframe，旧刷新路径还可替换 resident injector。个人 `--external-service` 对刷新组合的拒绝只保护该入口，普通构建没有这项保护。
+
+本轮修复范围是让默认 `build/check` 只完成工程检查，保留已有 `npm run codex:refresh` 的明确刷新入口及原 `--refresh` 语义。该显式命令仍会影响可达看板页面，使用前检查实例和运行中任务；它不等同于旧 `--refresh-if-running` 的 resident replacement。个人源码 App 构建原已使用 `build:web`。
+
+历史静止重加载根因仍未知。已查常规心跳和 quiet 数据更新没有无条件整页导航；宿主挂载容器变化可以重建 iframe，`Page.setDocumentContent` 也需纳入观测。后续需将可见现象、文档/iframe身份、心跳和服务代次对齐；此工程触发修复不代表历史重加载已全部解决。默认构建隐式刷新已移除；隔离 npm fixture 在旧配置下两项失败，修改后相关17项通过，typecheck/build:web通过。fixture只运行记录用stub，不接触真实注入器；Windows脚本执行尚待CI。DOM/心跳回归与独立审核继续进行，Issue #19 保持开放。
+
+
+隔离 Chrome 回归补测四项通过（含保留的布局、外链和恶意导航撤权）：无关 DOM mutation 后 frame 对象、window/name、加载请求与 load 事件不变；替换宿主 surface 后恰一次重建，后续稳定；停止心跳超过八秒时空闲 frame 不导航且不自行显示遮罩，明确重新打开后仅显示服务未就绪错误，frame 身份和加载次数不变。每个测试使用独立临时 profile、调试 pipe 与 loopback fixture，自建子进程均退出、服务关闭、profile移除。生产注入脚本未变，此为已有行为补测，首次即绿，无生产失败前证据；fixture通过srcdoc模拟文档加载，不能替代生产CDP文档安装或日常Codex的UI复现。新增测试独立审核中，Issue #19 保持开放。
