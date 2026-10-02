@@ -12,8 +12,9 @@ function fixture(t) {
   t.after(()=>{state.close();rmSync(root,{recursive:true,force:true});});
   const policy={schemaVersion:1,projectId:'p1',hostId:'local',workspacePath:root,enabled:true,taskCategories:['test'],allowedTools:['read'],maxCallsPerRun:1,maxConcurrent:2,maxDispatchesPerDay:10,expiresAt:'2099-01-01T00:00:00.000Z'};
   state.replace('p1',0,policy);
-  const input={taskId:'t1',semanticInputVersion:'a'.repeat(64),policyRevision:1,request:{projectId:'p1',hostId:'local',workspacePath:root,taskCategory:'test',tools:['read'],maxCalls:1}};
+  const input={bindingRevision:1,taskId:'t1',semanticInputVersion:'a'.repeat(64),policyRevision:1,request:{projectId:'p1',hostId:'local',workspacePath:root,taskCategory:'test',tools:['read'],maxCalls:1}};
   const binding={threadId:'thread1',codexProjectId:'codex-project',codexProjectKind:'local',codexHostId:'local',workspacePath:root};
+  state.setBinding(input.taskId,input.request.projectId,0,binding,0);
   return {state,filename,input,binding,policy};
 }
 
@@ -50,6 +51,7 @@ test('global executor limit spans projects and unknown keeps the slot',t=>{
   const {state,input,binding,policy}=fixture(t);
   state.replace('p2',0,{...policy,projectId:'p2'});
   const second={...input,taskId:'t2',request:{...input.request,projectId:'p2'}};
+  state.setBinding(second.taskId,second.request.projectId,0,{...binding,threadId:'thread2'},0);
   const a=state.reserve(input,1000),b=state.reserve(second,1000);
   state.prepare(a.token,input,binding,1,1001);
   assert.equal(state.prepare(b.token,second,{...binding,threadId:'thread2'},1,1002).reason,'GLOBAL_EXECUTOR_BUSY');
@@ -108,6 +110,7 @@ test('four processes in different projects prepare only one global executor',asy
     const projectId=`p${n+2}`;
     state.replace(projectId,0,{...policy,projectId});
     const candidate={...input,taskId:`t${n+2}`,request:{...input.request,projectId}};
+    state.setBinding(candidate.taskId,projectId,0,binding,1000);
     cases.push({candidate,token:state.reserve(candidate,1000).token});
   }
   const script=`import {ExecutionAttemptStore} from ${JSON.stringify(new URL('../server/execution-attempt-store.mjs',import.meta.url).href)};
@@ -174,4 +177,36 @@ test('killed submitting process leaves the same durable request and cannot be re
     if(child.exitCode===null&&child.signalCode===null)child.kill('SIGKILL');
     await exited;
   }
+});
+
+
+test('dedicated bindings persist and cannot change while an attempt is unresolved',t=>{
+  const {state,filename,input,binding}=fixture(t);
+  assert.equal(state.getBinding(input.taskId).revision,1);
+  assert.equal(state.setBinding(input.taskId,'p1',0,null,1).reason,'BINDING_CONFLICT');
+  const reservation=state.reserve(input,1000);
+  assert.equal(state.setBinding(input.taskId,'p1',1,null,1001).reason,'TASK_UNRESOLVED');
+  assert.equal(state.prepare(reservation.token,input,binding,1,1002).decision,'possibly_submitted');
+  state.markUnknown(reservation.token,1003);
+  assert.equal(state.setBinding(input.taskId,'p1',1,{...binding,threadId:'other'},1004).reason,'TASK_UNRESOLVED');
+  const reopened=new ExecutionAttemptStore(filename);
+  try {assert.deepEqual(reopened.getBinding(input.taskId).binding,binding);} finally {reopened.close();}
+});
+
+test('cleared binding cannot be replaced by a caller-supplied source conversation',t=>{
+  const {state,input,binding}=fixture(t);
+  assert.equal(state.setBinding(input.taskId,'p1',1,null,1).authorizesDispatch,false);
+  const reservation=state.reserve(input,1000);
+  assert.equal(state.prepare(reservation.token,input,binding,1,1001).reason,'EXECUTION_BINDING_REQUIRED');
+  assert.equal(state.getAttempt(reservation.token),null);
+});
+
+
+test('bind-unbind-rebind to the same thread rejects a stale binding revision',t=>{
+  const {state,input,binding}=fixture(t);
+  state.setBinding(input.taskId,'p1',1,null,1);
+  state.setBinding(input.taskId,'p1',2,binding,2);
+  const reservation=state.reserve(input,1000);
+  assert.equal(state.prepare(reservation.token,input,binding,1,1001).reason,'EXECUTION_BINDING_REQUIRED');
+  assert.equal(state.getAttempt(reservation.token),null);
 });

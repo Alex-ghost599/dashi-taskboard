@@ -11887,3 +11887,26 @@ kbd {
   .dashboard-metric { border-left: 0; border-top: var(--border-hairline) solid var(--border); }
   .dashboard-metric:first-child { border-top: 0; }
 }
+
+.task-execution-binding {
+  margin: 16px 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  background: var(--surface);
+  font-size: 13px;
+}
+.task-execution-binding h3 { margin: 0 0 8px; font-size: 14px; }
+.task-execution-binding p { color: var(--text-secondary); }
+.task-execution-binding dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; }
+.task-execution-binding dd { margin: 0; overflow-wrap: anywhere; }
+.task-execution-binding label { display: block; }
+.task-execution-binding input { display: block; width: 100%; box-sizing: border-box; margin: 6px 0; padding: 6px; color: inherit; background: var(--surface-muted); border: 1px solid var(--border); border-radius: 4px; }
+.task-execution-binding button { margin: 4px 8px 0 0; }
+.task-execution-binding [role="alert"] { color: var(--danger); overflow-wrap: anywhere; }
+
+.manual-card-dialog { width: min(560px, 90vw); max-height: 90vh; overflow: auto; padding: 24px; border-radius: 12px; background: var(--surface); color: var(--text-primary); }
+.manual-card-dialog label { display: grid; gap: 6px; margin: 12px 0; }
+.manual-card-dialog input, .manual-card-dialog textarea { width: 100%; padding: 8px; }
+.manual-card-dialog button { margin: 8px 8px 0 0; }

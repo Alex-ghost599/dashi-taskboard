@@ -25,7 +25,19 @@ async function main() {
     process.env.CODEX_TASKBOARD_INSTANCE_TOKEN = credentials.token;
     process.env.CODEX_TASKBOARD_INSTANCE_SECRET = credentials.secret;
   }
-  const app = createTaskboardServer({ personalRootRedirect: personal });
+  let manualBindingTargetResolver;
+  const bindingPort = process.env.CODEX_TASKBOARD_BINDING_CDP_PORT;
+  if (bindingPort !== undefined) {
+    if (!personal || process.platform !== "darwin" || !/^\d+$/.test(bindingPort)) {
+      throw new Error("Desktop binding requires personal macOS mode and an explicit CDP port");
+    }
+    const { createCodexBindingTargetResolver } = await import("./codex-binding-target.mjs");
+    manualBindingTargetResolver = createCodexBindingTargetResolver({
+      port: Number(bindingPort),
+      executable: process.env.CODEX_TASKBOARD_BINDING_CODEX_EXECUTABLE,
+    });
+  }
+  const app = createTaskboardServer({ personalRootRedirect: personal, manualBindingTargetResolver });
   const host = resolveHost();
   const listenFd = process.env.CODEX_TASKBOARD_LISTEN_FD === undefined
     ? null

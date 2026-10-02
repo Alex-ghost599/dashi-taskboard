@@ -832,3 +832,57 @@ export function resolvePersistedAttachmentUrl(value: string): string {
   }
   return value;
 }
+
+export interface ExecutionBindingState {
+  taskId: string;
+  projectId: string | null;
+  revision: number;
+  binding: CodexThreadBinding | null;
+  taskVersion?: number;
+  authorizesDispatch: false;
+}
+export interface ExecutionBindingPreview {
+  previewId: string;
+  taskId: string;
+  taskVersion: number;
+  bindingRevision: number;
+  target: CodexThreadBinding;
+  expiresAt: number;
+  authorizesDispatch: false;
+}
+export async function getExecutionBinding(taskId: string) {
+  return (await request<{ binding: ExecutionBindingState }>(`/api/local/execution-bindings/${encodeURIComponent(taskId)}`)).binding;
+}
+export async function previewExecutionBinding(taskId: string, threadId: string, taskVersion: number, bindingRevision: number) {
+  return (await request<{ binding: ExecutionBindingPreview }>(`/api/local/execution-bindings/${encodeURIComponent(taskId)}/preview`, {
+    method: "POST", body: JSON.stringify({ threadId, taskVersion, bindingRevision }),
+  })).binding;
+}
+export async function confirmExecutionBinding(taskId: string, previewId: string) {
+  return (await request<{ binding: ExecutionBindingState }>(`/api/local/execution-bindings/${encodeURIComponent(taskId)}/confirm`, {
+    method: "POST", body: JSON.stringify({ previewId }),
+  })).binding;
+}
+export async function unbindExecutionBinding(taskId: string, taskVersion: number, bindingRevision: number) {
+  return (await request<{ binding: ExecutionBindingState }>(`/api/local/execution-bindings/${encodeURIComponent(taskId)}`, {
+    method: "DELETE", body: JSON.stringify({ taskVersion, bindingRevision }),
+  })).binding;
+}
+
+export interface ManualCardAssociation {
+  requestId: string;
+  taskId: string;
+  source: CodexThreadBinding;
+  active: boolean;
+  revokedAt: string | null;
+  createdAt: string;
+}
+export async function createManualCard(input: {requestId: string; projectId: string; threadId: string; title: string; description: string; allowAdditional: boolean}) {
+  return request<{task: Task; association: ManualCardAssociation; authorizesDispatch: false}>("/api/local/manual-cards", {method: "POST", body: JSON.stringify(input)});
+}
+export async function listManualCardAssociations(taskId: string) {
+  return (await request<{associations: ManualCardAssociation[]}>(`/api/local/manual-card-associations/${encodeURIComponent(taskId)}`)).associations;
+}
+export async function revokeManualCardAssociation(requestId: string, taskId: string) {
+  return (await request<{association: ManualCardAssociation}>(`/api/local/manual-cards/${encodeURIComponent(requestId)}`, {method: "DELETE", body: JSON.stringify({taskId})})).association;
+}

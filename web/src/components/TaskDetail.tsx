@@ -1,3 +1,4 @@
+import { ManualCardAssociations } from "./ManualConversationCard";
 import {
   useCallback,
   useEffect,
@@ -51,6 +52,7 @@ import {
   actorKey,
   assigneeTargetForActor,
 } from "../actors";
+import { ExecutionBindingPanel } from "./ExecutionBindingPanel";
 import { ActorAvatar } from "./ActorAvatar";
 import { STATUS_DETAILS } from "./BoardColumn";
 import { LabelPicker } from "./LabelPicker";
@@ -1206,6 +1208,8 @@ export function TaskDetail({
                       : text("添加描述…", "Add description…")}
                   </div>
                 )}
+                <ManualCardAssociations key={currentTask.id} taskId={currentTask.id} />
+                <ExecutionBindingPanel task={currentTask} />
                 {(currentTask.threadBinding || currentTask.legacyLocalThreadId) && (
                   <div
                     className="issue-conversation-list"

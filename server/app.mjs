@@ -28,6 +28,8 @@ import {
   createCloudProxy,
   isLocalCompanionRoute,
 } from "./cloud-proxy.mjs";
+import { ExecutionAttemptStore } from "./execution-attempt-store.mjs";
+import { ManualExecutionBinding } from "./manual-execution-binding.mjs";
 import { ApiError, TaskboardDatabase } from "./database.mjs";
 import { createJiraConfigStore } from "./jira-config.mjs";
 import { createJiraIntegration } from "./jira-integration.mjs";
@@ -1741,6 +1743,18 @@ export function createTaskboardServer(options = {}) {
   const routePrefix = resolved.instanceToken ? `/${resolved.instanceToken}` : "";
   const database = new TaskboardDatabase(resolved.databasePath);
   const events = new EventHub();
+  let bindingControl = null;
+  let bindingService = null;
+  function manualBindings() {
+    if (!bindingService) {
+      bindingControl = new ExecutionAttemptStore(path.join(path.dirname(resolved.databasePath), "execution-control.sqlite"), {
+        taskDatabasePath: resolved.databasePath,
+      });
+      bindingService = new ManualExecutionBinding({ database, control: bindingControl, resolveTarget: options.manualBindingTargetResolver });
+    }
+    return bindingService;
+  }
+
   let clientStorageWrite = Promise.resolve();
 
   async function readClientStorage() {
@@ -3206,6 +3220,85 @@ export function createTaskboardServer(options = {}) {
         return sendJson(response, 200, { tree: database.getTaskTree(id, direction, depth) });
       }
 
+      const manualAssociationsRoute = pathname.match(/^\/api\/local\/manual-card-associations\/([a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127})$/);
+      if (manualAssociationsRoute) {
+        if (request.method !== "GET") return methodNotAllowed(response, ["GET"]);
+        if ([...url.searchParams.keys()].length) throw new ApiError(400, "UNKNOWN_QUERY_PARAMETER", "Associations do not accept query parameters");
+        const rows = database.database.prepare("SELECT request_id FROM manual_card_creations WHERE task_id = ? ORDER BY created_at, request_id").all(manualAssociationsRoute[1]);
+        return sendJson(response, 200, { associations: rows.map(row => database.getManualCardCreation(row.request_id)), authorizesDispatch: false });
+      }
+
+      const manualCardRoute = pathname.match(/^\/api\/local\/manual-cards(?:\/([a-zA-Z0-9][a-zA-Z0-9_-]{0,127}))?$/);
+      if (manualCardRoute) {
+        if ([...url.searchParams.keys()].length) throw new ApiError(400, "UNKNOWN_QUERY_PARAMETER", "Manual cards do not accept query parameters");
+        const requestId = manualCardRoute[1];
+        try {
+          const service = manualBindings();
+          if (!requestId && request.method === "POST") {
+            const body = await readJson(request); assertPlainObject(body);
+            assertAllowedKeys(body, new Set(["requestId", "projectId", "title", "description", "threadId", "allowAdditional"]));
+            if (body.allowAdditional !== undefined && typeof body.allowAdditional !== "boolean") throw new ApiError(400, "INVALID_FIELD", "allowAdditional must be boolean");
+            const { assigneeTarget, ...input } = parseTaskCreate({ projectId: body.projectId, title: body.title,
+              description: body.description, threadId: body.threadId, status: "in_progress" });
+            if (input.projectId === JIRA_PROJECT_ID) throw new ApiError(409, "JIRA_CREATE_UNAVAILABLE", "Create Jira cards in Jira");
+            const actor = actorFromRequest(request);
+            const result = await service.createCard({ ...input, actor, assignee: actor }, body.requestId, { allowAdditional: body.allowAdditional ?? false });
+            if (result.created) events.emit("task.created", { task: result.task });
+            return sendJson(response, 200, result);
+          }
+          if (requestId && request.method === "GET") return sendJson(response, 200, service.cardAssociation(requestId));
+          if (requestId && request.method === "DELETE") {
+            const body = await readJson(request); assertPlainObject(body); assertAllowedKeys(body, new Set(["taskId"]));
+            const taskId = stringField(body.taskId, "taskId", { required: true, maxLength: 128 });
+            return sendJson(response, 200, service.revokeCardAssociation(requestId, taskId));
+          }
+          return methodNotAllowed(response, requestId ? ["GET", "DELETE"] : ["POST"]);
+        } catch (error) {
+          if (error instanceof ApiError) throw error;
+          const code = error?.code;
+          if (["DESKTOP_UNAVAILABLE", "DESKTOP_TIMEOUT", "DESKTOP_BUSY"].includes(code)) throw new ApiError(503, code, code);
+          if (["PROJECT_UNAVAILABLE", "TARGET_MISMATCH", "INVALID_THREAD", "MANUAL_ASSOCIATION_UNAVAILABLE", "INVALID_MANUAL_REQUEST"].includes(code)) throw new ApiError(409, code, code);
+          throw error;
+        }
+      }
+
+      const bindingRoute = pathname.match(/^\/api\/local\/execution-bindings\/([^/]+)(?:\/(preview|confirm))?$/);
+      if (bindingRoute) {
+        let taskId;
+        try { taskId = decodeURIComponent(bindingRoute[1]); }
+        catch { throw new ApiError(400, "INVALID_PATH", "Invalid task id"); }
+        if (!/^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$/.test(taskId)) throw new ApiError(400, "INVALID_PATH", "Invalid task id");
+        const action = bindingRoute[2];
+        try {
+          const service = manualBindings();
+          let result;
+          if (!action && request.method === "GET") result = service.get(taskId);
+          else if (action === "preview" && request.method === "POST") {
+            const body = await readJson(request); assertPlainObject(body);
+            assertAllowedKeys(body, new Set(["threadId", "taskVersion", "bindingRevision"]));
+            result = await service.preview(taskId, body);
+          } else if (action === "confirm" && request.method === "POST") {
+            const body = await readJson(request); assertPlainObject(body);
+            assertAllowedKeys(body, new Set(["previewId"]));
+            result = await service.confirm(taskId, body.previewId);
+          } else if (!action && request.method === "DELETE") {
+            const body = await readJson(request); assertPlainObject(body);
+            assertAllowedKeys(body, new Set(["taskVersion", "bindingRevision"]));
+            result = service.unbind(taskId, body);
+          } else return methodNotAllowed(response, action ? ["POST"] : ["GET", "DELETE"]);
+          if (result.decision === "blocked") throw new ApiError(409, result.reason, result.reason);
+          return sendJson(response, 200, { binding: result });
+        } catch (error) {
+          if (error instanceof ApiError) throw error;
+          const code = error?.code;
+          if (["DESKTOP_UNAVAILABLE", "DESKTOP_TIMEOUT", "DESKTOP_BUSY"].includes(code)) throw new ApiError(503, code, code);
+          if (["TASK_UNAVAILABLE", "PROJECT_UNAVAILABLE", "TASK_CHANGED", "TARGET_MISMATCH", "TARGET_CHANGED", "PREVIEW_UNAVAILABLE", "PREVIEW_EXPIRED", "PREVIEW_LIMIT", "INVALID_THREAD"].includes(code)) {
+            throw new ApiError(409, code, code);
+          }
+          throw error;
+        }
+      }
+
       const taskRoute = pathname.match(/^\/api\/tasks\/([^/]+)(?:\/(archive|restore|move))?$/);
       if (taskRoute) {
         let id;
@@ -3584,6 +3677,7 @@ export function createTaskboardServer(options = {}) {
       await projectSummary.close();
       await serverClosed;
       listening = false;
+      bindingControl?.close();
       database.close();
     },
   };
