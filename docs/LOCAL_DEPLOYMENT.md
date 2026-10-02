@@ -206,3 +206,5 @@ PR57 CI补充：中断测试fixture改为等待显式信号，避免800ms自动�
 ### 会话来源预览候选
 
 当前来源根为运行用户的 `CODEX_HOME/sessions`，未设置时使用 `~/.codex/sessions`；只读取JSONL首行元数据并按项目目录筛选，不接入Obsidian，不写会话文件或导入正式卡。隔离验收必须配置独立 `conversationSessionsRoot`、临时任务库及假Codex可执行程序，防止其他UI入口调用真实模型。候选UI/header在独立fixture通过，正式App尚未替换。归档、保存及动态取消/并发验收详见CONVERSATION_IMPORT_PREVIEW.md；移除源码能力不需要回退任务库schema。
+
+#33归档范围：默认只读活动sessions，用户勾选并再次点击时才读同Codex home的archived_sessions；服务端可配置conversationArchivedSessionsRoot，客户端不能给路径。隔离fixture须同时指定两个合成根；缺归档目录不能解释为没有历史会话。仅预览不改库schema或运行数据。
