@@ -36,7 +36,9 @@ function publishResult(draft: TaskDraft) {
 createRoot(document.getElementById("root")!).render(
   <TaskEditor
     task={null}
+    projectId="fixture-project"
     tasks={[]}
+    referenceTasks={[]}
     initialStatus="in_progress"
     initialDraft={oldTodoDraft}
     labels={["回归证据"]}

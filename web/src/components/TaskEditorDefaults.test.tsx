@@ -122,3 +122,32 @@ it('editing an existing card preserves empty dates and does not overwrite create
   await waitFor(()=>expect(props.onSave).toHaveBeenCalledTimes(1));
   expect(storage).not.toHaveBeenCalled();
 });
+
+it('nested creation initializes its parent relation',async()=>{
+  prepareDialog(); const props=editorProps();
+  const onSave=vi.fn(async(_draft: TaskDraft, _files: unknown[], _images: unknown[], _options?: import('./TaskEditor').NewTaskCreateOptions)=>{});
+  render(<TaskEditor {...props} defaultParentId="workspace-parent" onSave={onSave}/>);
+  fireEvent.change(screen.getByPlaceholderText(/Issue title|议题标题/),{target:{value:'nested card'}});
+  fireEvent.click(screen.getByRole('button',{name:/Create issue|创建议题/}));
+  await waitFor(()=>expect(onSave).toHaveBeenCalledTimes(1));
+  expect(onSave.mock.calls[0]?.[3]).toMatchObject({relations:{parentId:'workspace-parent'}});
+});
+it('a restored explicit no-parent choice overrides the workspace default',async()=>{
+  prepareDialog(); const props=editorProps();
+  const onSave=vi.fn(async(_draft: TaskDraft, _files: unknown[], _images: unknown[], _options?: import('./TaskEditor').NewTaskCreateOptions)=>{});
+  const draft={title:'no parent',descriptionSegments:[],status:'todo' as const,priority:'none' as const,assignee:currentUser,selectedLabels:[],developmentContext:null,startDate:'',dueDate:'',recurrence:null,relations:{parentId:null,relatedIds:[],subIssueIds:[]}};
+  render(<TaskEditor {...props} defaultParentId="workspace-parent" initialDraft={draft} onSave={onSave}/>);
+  fireEvent.click(screen.getByRole('button',{name:/Create issue|创建议题/}));
+  await waitFor(()=>expect(onSave).toHaveBeenCalledTimes(1));
+  expect(onSave.mock.calls[0]?.[3]?.relations.parentId).toBeNull();
+});
+it('switching the create target project clears the old parent relation',async()=>{
+  prepareDialog(); const props=editorProps();
+  const onSave=vi.fn(async(_draft: TaskDraft, _files: unknown[], _images: unknown[], _options?: import('./TaskEditor').NewTaskCreateOptions)=>{});
+  const view=render(<TaskEditor {...props} defaultParentId="old-project-parent" onSave={onSave}/>);
+  fireEvent.change(screen.getByPlaceholderText(/Issue title|议题标题/),{target:{value:'switched target'}});
+  view.rerender(<TaskEditor {...props} projectId="new-project" defaultParentId={null} onSave={onSave}/>);
+  fireEvent.click(screen.getByRole('button',{name:/Create issue|创建议题/}));
+  await waitFor(()=>expect(onSave).toHaveBeenCalledTimes(1));
+  expect(onSave.mock.calls[0]?.[3]?.relations.parentId).toBeNull();
+});
