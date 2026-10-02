@@ -62,12 +62,19 @@ test('binding transaction leaves task database bytes and task version unchanged'
   assert.equal(tasks.getTask(task.id).version,task.version);
 });
 
-test('task database replacement fails without persisting a binding',t=>{
-  const {filename,task,control,binding}=fixture(t);
-  renameSync(filename,filename+'.original');
-  copyFileSync(filename+'.original',filename);
-  assert.throws(()=>control.setBinding(task.id,'p1',0,binding,0,task.version),/TASK_DATABASE_REPLACED/);
+test('live task database replacement is refused before a binding is persisted',t=>{
+  const {filename,tasks,task,control,binding}=fixture(t);
+  if(process.platform==='win32') {
+    // Windows refuses replacing SQLite files while the writer and attachment are open.
+    assert.throws(()=>renameSync(filename,filename+'.original'),{code:'EBUSY'});
+    assert.equal(tasks.getTask(task.id).version,task.version);
+  } else {
+    renameSync(filename,filename+'.original');
+    copyFileSync(filename+'.original',filename);
+    assert.throws(()=>control.setBinding(task.id,'p1',0,binding,0,task.version),/TASK_DATABASE_REPLACED/);
+  }
   assert.equal(control.getBinding(task.id).revision,0);
+  assert.equal(control.getBinding(task.id).binding,null);
 });
 
 

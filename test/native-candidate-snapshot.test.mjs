@@ -9,17 +9,18 @@ import { NativeSnapshotReader } from "../server/native-candidate-snapshot.mjs";
 import { assessCandidate } from "../shared/automation-candidates.mjs";
 const user = { type: "user", id: "tester", name: "Tester", avatarUrl: null };
 const codex = { type: "agent", id: "codex-agent", name: "Codex", avatarUrl: null };
-function setup(t) {
+function setup(t, { withBindingStore = false } = {}) {
   const root = mkdtempSync(path.join(tmpdir(), "native-snapshot-"));
   const file = path.join(root, "taskboard.sqlite");
   const writer = new TaskboardDatabase(file);
   writer.createProject({ id: "p1", name: "Synthetic", workspacePath: root });
-  const reader = new NativeSnapshotReader(file);
-  t.after(() => { reader.close(); writer.close(); rmSync(root, { recursive: true, force: true }); });
+  const control = withBindingStore ? new ExecutionAttemptStore(path.join(root, "control.sqlite")) : null;
+  const reader = new NativeSnapshotReader(file, { bindingStore: control });
+  t.after(() => { reader.close(); control?.close(); writer.close(); rmSync(root, { recursive: true, force: true }); });
   const create = (patch = {}) => writer.createTask({ projectId: "p1", title: "Synthetic task", description: "", status: "todo",
     priority: "none", labels: [], actor: user, assignee: codex, threadId: null, developmentContext: null,
     startDate: null, dueDate: null, recurrence: null, ...patch });
-  return { root, file, writer, reader, create };
+  return { root, file, writer, reader, create, control };
 }
 
 test("native snapshot uses assignee rather than creator and keeps human comments semantic", (t) => {
@@ -83,11 +84,8 @@ test("editing source conversation never becomes an execution binding", (t) => {
 
 
 test("snapshot reads only the dedicated binding and includes its revision in semantic input", (t) => {
-  const { writer, create, root, file } = setup(t);
+  const { writer, create, root, reader, control } = setup(t, { withBindingStore: true });
   const task = create();
-  const control = new ExecutionAttemptStore(path.join(root, "control.sqlite"));
-  const reader = new NativeSnapshotReader(file, { bindingStore: control });
-  t.after(() => { reader.close(); control.close(); });
   const binding = { threadId: "executor", codexProjectId: "codex-project", codexProjectKind: "local", codexHostId: "local", workspacePath: root };
   control.setBinding(task.id, "p1", 0, binding, 0);
   const initial = reader.read("p1", "1");

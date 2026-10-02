@@ -77,10 +77,13 @@ export function desktopReadExpression(threadId,nonce=randomUUID()) {
 // A short-lived, abortable CDP channel. Closing rejects every pending operation.
 export async function connectBindingCdp(url,signal) {
   signal.throwIfAborted();
-  const socket=new WebSocket(url),pending=new Map();let sequence=0;
+  const socket=new WebSocket(url),pending=new Map();let sequence=0,stopped=false;
   let resolveOpen,rejectOpen;
   const opened=new Promise((resolve,reject)=>{resolveOpen=resolve;rejectOpen=reject;});
   const stop=()=>{
+    if(stopped) return;
+    // close() may synchronously emit error before readyState leaves CONNECTING.
+    stopped=true;
     const error=Object.assign(new Error('DESKTOP_UNAVAILABLE'),{code:'DESKTOP_UNAVAILABLE'});
     rejectOpen(error);for(const item of pending.values()) item.reject(error);pending.clear();
     signal.removeEventListener('abort',stop);

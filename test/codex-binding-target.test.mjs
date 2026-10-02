@@ -112,6 +112,26 @@ test('cancel during websocket handshake exits without waiting for server upgrade
   await upgrade;controller.abort();await rejected;
 });
 
+test('handshake cancellation tolerates a synchronous close error without closing twice',{timeout:5000},async t=>{
+  const {createServer}=await import('node:http');const {once}=await import('node:events');
+  const {connectBindingCdp}=await import('../server/codex-binding-target.mjs');
+  const server=createServer();const sockets=new Set();
+  server.on('connection',socket=>{sockets.add(socket);socket.on('close',()=>sockets.delete(socket));});
+  server.on('upgrade',()=>{});
+  server.listen(0,'127.0.0.1');await once(server,'listening');
+  t.after(async()=>{const closed=once(server,'close');for(const socket of sockets) socket.destroy();server.close();await closed;});
+  const close=WebSocket.prototype.close;let closeCalls=0;
+  // Node 22 can emit error synchronously while close still reports CONNECTING.
+  t.mock.method(WebSocket.prototype,'close',function(...args){
+    if(++closeCalls===1) this.dispatchEvent(new Event('error'));
+    return close.apply(this,args);
+  });
+  const controller=new AbortController();const upgrade=once(server,'upgrade');
+  const rejected=assert.rejects(connectBindingCdp(`ws://127.0.0.1:${server.address().port}`,controller.signal),/DESKTOP_UNAVAILABLE/);
+  await upgrade;controller.abort();await rejected;
+  assert.equal(closeCalls,1);
+});
+
 test('frame navigation or listener owner drift refuses the completed native read',async()=>{
   const {readBindingViaCdp}=await import('../server/codex-binding-target.mjs');
   for(const scenario of ['ok','frame','loader','owner']) {
