@@ -31,6 +31,7 @@ import {
 import { ApiError, TaskboardDatabase } from "./database.mjs";
 import { createJiraConfigStore } from "./jira-config.mjs";
 import { createJiraIntegration } from "./jira-integration.mjs";
+import { previewProjectConversations } from "./conversation-import-preview.mjs";
 import { ProjectSummaryService } from "./project-summary.mjs";
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -1703,6 +1704,7 @@ export function resolveServerOptions(options = {}) {
       ?? environment.CODEX_TASKBOARD_SKILL_PATH
       ?? path.join(PROJECT_ROOT, "skills", "manage-taskboard", "SKILL.md"),
     codexExecutable: resolveCodexExecutable({ explicit: options.codexExecutable }),
+    conversationSessionsRoot: options.conversationSessionsRoot ?? path.join(codexHome, "sessions"),
     codexStatePath: options.codexStatePath
       ?? path.join(codexHome, ".codex-global-state.json"),
     codexProcessesPath: options.codexProcessesPath
@@ -1740,6 +1742,7 @@ export function createTaskboardServer(options = {}) {
   );
   const routePrefix = resolved.instanceToken ? `/${resolved.instanceToken}` : "";
   const database = new TaskboardDatabase(resolved.databasePath);
+  let conversationPreviewController = null;
   const events = new EventHub();
   let clientStorageWrite = Promise.resolve();
 
@@ -2195,6 +2198,39 @@ export function createTaskboardServer(options = {}) {
           });
         }
         return sendJson(response, 200, { status: "ok" });
+      }
+
+      if (pathname === "/api/local/conversation-import-preview") {
+        if (request.method !== "GET") return methodNotAllowed(response, ["GET"]);
+        if ([...url.searchParams.keys()].some(key => key !== "projectId")) {
+          throw new ApiError(400, "UNKNOWN_QUERY_PARAMETER", "Only projectId is accepted");
+        }
+        const projectId = url.searchParams.get("projectId");
+        validateProjectId(projectId);
+        const project = database.getProject(projectId);
+        if (!project) throw new ApiError(404, "PROJECT_NOT_FOUND", "Project does not exist");
+        if (projectId === JIRA_PROJECT_ID || !project.workspacePath) {
+          throw new ApiError(409, "PROJECT_WORKSPACE_REQUIRED", "A local project workspace is required");
+        }
+        if (conversationPreviewController) {
+          throw new ApiError(503, "CONVERSATION_PREVIEW_BUSY", "A source preview is already in progress");
+        }
+        const controller = new AbortController();
+        conversationPreviewController = controller;
+        const cancel = () => { if (!response.writableFinished) controller.abort(); };
+        response.once("close", cancel);
+        try {
+          return sendJson(response, 200, await previewProjectConversations({
+            sessionsRoot: resolved.conversationSessionsRoot, project,
+            signal: AbortSignal.any([controller.signal, AbortSignal.timeout(5000)]),
+            existing: database.listTasks({ projectId }),
+          }));
+        } catch (cause) {
+          throw Object.assign(new ApiError(503, "CONVERSATION_SOURCE_UNAVAILABLE", "Conversation source cannot be safely read"), { cause });
+        } finally {
+          response.off("close", cancel);
+          conversationPreviewController = null;
+        }
       }
 
       if (pathname === "/api/client-storage") {
@@ -3559,6 +3595,7 @@ export function createTaskboardServer(options = {}) {
       return server.address();
     },
     async close() {
+      conversationPreviewController?.abort();
       for (const { localSocket, remoteSocket } of cloudRealtimeSockets) {
         localSocket.terminate();
         remoteSocket.terminate();
