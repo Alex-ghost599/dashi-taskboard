@@ -854,3 +854,27 @@ export interface ConversationSourcePreview {
 export async function previewProjectConversations(projectId: string, options: {signal?: AbortSignal; includeArchived?: boolean} = {}): Promise<ConversationSourcePreview> {
   return request<ConversationSourcePreview>(`/api/local/conversation-import-preview?projectId=${encodeURIComponent(projectId)}${options.includeArchived ? "&includeArchived=true" : ""}`, {signal: options.signal});
 }
+
+export interface ConversationImportProposal {
+  proposalId: string;
+  title: string;
+  description: string;
+  canSave: boolean;
+  coverage: {complete: boolean; truncated: boolean; extractedMessages?: number; reasons?: unknown[]};
+  evidence: Record<string, unknown>;
+  status: "unknown";
+  executionBinding: null;
+  authorizesDispatch: false;
+}
+export async function prepareConversationImport(input: {
+  projectId: string; threadId: string;
+  sourceFile: ConversationSourcePreview["candidates"][number]["sourceFiles"][number];
+}, options: {signal?: AbortSignal} = {}): Promise<ConversationImportProposal> {
+  return request("/api/local/conversation-import-proposal", {method: "POST", body: JSON.stringify(input), signal: options.signal});
+}
+export async function saveConversationImport(input: {proposalId: string; title: string; description: string}, options: {signal?: AbortSignal} = {}): Promise<{task: Task; alreadyImported: boolean; replayed?: boolean}> {
+  return request("/api/local/conversation-import-save", {method: "POST", body: JSON.stringify(input), signal: options.signal});
+}
+export async function discardConversationImport(proposalId: string): Promise<{discarded: boolean}> {
+  return request("/api/local/conversation-import-discard", {method: "POST", body: JSON.stringify({proposalId})});
+}

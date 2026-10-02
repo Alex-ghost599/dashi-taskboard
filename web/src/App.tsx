@@ -3626,7 +3626,7 @@ export function App() {
           <div ref={dragRegionRef} className="workspace-drag-region" aria-hidden="true" />
 
           <div className="header-actions">
-            {selectedProject && !isJiraProject && !workspaceReadOnly && <ConversationImportPreview key={selectedProject.id} projectId={selectedProject.id} projectName={selectedProject.name} />}
+            {selectedProject && !isJiraProject && !workspaceReadOnly && <ConversationImportPreview key={selectedProject.id} projectId={selectedProject.id} projectName={selectedProject.name} onSaved={()=>{void refreshTasks(selectedProject.id,{quiet:true});void refreshProjectList();}} />}
             {selectedProject && !workspaceReadOnly && (
               <ProjectAutomationMenu
                 automation={selectedProjectAutomation}

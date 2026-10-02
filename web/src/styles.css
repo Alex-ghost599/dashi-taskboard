@@ -11907,3 +11907,16 @@ kbd {
 
 .conversation-preview-dialog > .conversation-preview-content { display: block; margin-top: 16px; }
 .conversation-preview-dialog p { font-size: 13px; margin: 6px 0; }
+.conversation-proposal-form label { display: grid; gap: 6px; margin: 12px 0; }
+.conversation-proposal-form input,
+.conversation-proposal-form textarea {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 8px;
+  border: var(--border-hairline) solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  color: var(--text-primary);
+}
+.conversation-proposal-form textarea { min-height: 160px; resize: vertical; }
+.conversation-proposal-form pre { white-space: pre-wrap; }
