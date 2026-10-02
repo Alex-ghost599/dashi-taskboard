@@ -202,3 +202,7 @@ PR57 CI补充：中断测试fixture改为等待显式信号，避免800ms自动�
 
 ## 安装前进程与备份检查
 使用PID/可执行文件路径识别个人App，不输出其他进程的完整参数或环境。安装器只对taskboard.sqlite使用SQLite在线备份；安装前检查数据目录是否存在其他数据库，若有先补充备份方案。独立看板验收不要求重启Codex或启用自动认领。
+
+### 会话来源预览候选
+
+当前来源根为运行用户的 `CODEX_HOME/sessions`，未设置时使用 `~/.codex/sessions`；只读取JSONL首行元数据并按项目目录筛选，不接入Obsidian，不写会话文件或导入正式卡。隔离验收必须配置独立 `conversationSessionsRoot`、临时任务库及假Codex可执行程序，防止其他UI入口调用真实模型。候选UI/header在独立fixture通过，正式App尚未替换。归档、保存及动态取消/并发验收详见CONVERSATION_IMPORT_PREVIEW.md；移除源码能力不需要回退任务库schema。
