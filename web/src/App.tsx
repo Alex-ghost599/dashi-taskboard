@@ -1,3 +1,4 @@
+import { ConversationImportPreview } from "./components/ConversationImportPreview";
 import {
   Fragment,
   lazy,
@@ -3625,6 +3626,7 @@ export function App() {
           <div ref={dragRegionRef} className="workspace-drag-region" aria-hidden="true" />
 
           <div className="header-actions">
+            {selectedProject && !isJiraProject && !workspaceReadOnly && <ConversationImportPreview key={selectedProject.id} projectId={selectedProject.id} projectName={selectedProject.name} onSaved={()=>{void refreshTasks(selectedProject.id,{quiet:true});void refreshProjectList();}} />}
             {selectedProject && !workspaceReadOnly && (
               <ProjectAutomationMenu
                 automation={selectedProjectAutomation}
@@ -3923,7 +3925,7 @@ export function App() {
                   });
                 }}
               >
-                {text("导入当前项目任务状态", "Import current project task status")}
+                {text("准备 AI 整理请求", "Prepare AI organization request")}
               </button>
               )}
               {!isJiraProject && (
