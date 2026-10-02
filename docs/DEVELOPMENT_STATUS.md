@@ -186,3 +186,9 @@ OBS-03 CI诊断：PR57首轮check在既有AiChat中断用例失败，WAIT模拟�
 ## 双库备份独立修复候选
 
 安装器此前仅在线备份 taskboard.sqlite，遗漏 execution-control.sqlite；现将两个已知库在同一写锁窗口备份，保留附件同扩展文件，拒绝数据库持有者、根目录或内部符号链接及非普通数据库文件。11 项隔离 Python 测试通过，独立 validation-only reviewer 对新 develop 基线整合为 Critical 0 / Important 0；额外 schema4、权限、持有者错误和替换失败恢复探针通过。仅覆盖源码及合成运行，远端 Check/macOS/Windows/Ubuntu CI 已通过，真实 macOS 安装与恢复待验收。此独立修复不包含绑定 schema5 和 CDP 候选，也不据此关闭 Issue #34。
+
+## 空项目与归档提示修复（Issue #22）
+
+切换项目清除旧活动/归档列表，加载失败有明确提示；同项目后台刷新保留有效卡片。已确认空项目与仅归档项目分别展示，不在错误或已有归档时提示导入。同名项目菜单显示目录和 ID，标题保留完整身份；已有筛选无匹配提示保留。父任务工作区的不可用/归档只读优先级保持。
+
+整合回归：53 组件、33 项工作区/路由/项目相关 Node、全 Node 584 通过与 1 跳过，typecheck/build:web 通过；独立 validation-only reviewer Critical 0 / Important 0。隔离实际 UI 验证同名目录、项目切换、确认空项目、归档计数/卡片和 List 返回归档；未调用模型或修改正式数据。加载失败由合成测试覆盖，迟到回执完成静态检查；未在真实网络故障场景重做。正式安装尚未包含本修复。
