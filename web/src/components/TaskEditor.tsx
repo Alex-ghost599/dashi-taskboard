@@ -106,12 +106,14 @@ interface TaskEditorProps {
   referenceTasks: Task[];
   initialStatus: TaskStatus;
   initialDraft: NewTaskEditorDraft | null;
+  defaultParentId?: string | null;
   labels: string[];
   currentUser: ActorIdentity;
   developmentScan: DevelopmentScan;
   developmentScanProjectId?: string | null;
   developmentScanLoading: boolean;
   onCreateLabel: (label: string) => Promise<void>;
+  onDraftChange?: (draft: NewTaskEditorDraft) => void;
   onCancel: (draft: NewTaskEditorDraft | null) => void;
   onSave: (
     draft: TaskDraft,
@@ -166,12 +168,14 @@ export function TaskEditor({
   referenceTasks,
   initialStatus,
   initialDraft,
+  defaultParentId = null,
   labels: availableLabels,
   currentUser,
   developmentScan,
   developmentScanProjectId,
   developmentScanLoading,
   onCreateLabel,
+  onDraftChange,
   onCancel,
   onSave,
 }: TaskEditorProps) {
@@ -200,7 +204,7 @@ export function TaskEditor({
   const [startDate, setStartDate] = useState(task ? task.startDate ?? "" : initialDraft?.startDate ?? isoDate(new Date()));
   const [dueDate, setDueDate] = useState(task ? task.dueDate ?? "" : initialDraft?.dueDate ?? isoDate(new Date()));
   const [recurrence, setRecurrence] = useState<Recurrence | null>(task?.recurrence ?? initialDraft?.recurrence ?? null);
-  const [parentId, setParentId] = useState<string | null>(initialDraft?.relations.parentId ?? null);
+  const [parentId, setParentId] = useState<string | null>(initialDraft ? initialDraft.relations.parentId : defaultParentId);
   const [relatedIds, setRelatedIds] = useState<string[]>(initialDraft?.relations.relatedIds ?? []);
   const [subIssueIds, setSubIssueIds] = useState<string[]>(initialDraft?.relations.subIssueIds ?? []);
   const [createMore, setCreateMore] = useState(false);
@@ -211,6 +215,17 @@ export function TaskEditor({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<TaskEditorError | null>(null);
   const [attachmentError, setAttachmentError] = useState<TaskEditorError | null>(null);
+  const onDraftChangeRef = useRef(onDraftChange);
+  onDraftChangeRef.current = onDraftChange;
+  useEffect(() => {
+    if (task) return;
+    onDraftChangeRef.current?.({
+      title, descriptionSegments, status, priority, assignee, selectedLabels,
+      developmentContext, startDate, dueDate, recurrence,
+      relations: { parentId, relatedIds, subIssueIds },
+    });
+  }, [task, title, descriptionSegments, status, priority, assignee, selectedLabels,
+    developmentContext, startDate, dueDate, recurrence, parentId, relatedIds, subIssueIds]);
 
   useEffect(() => {
     if (task || defaultsProjectRef.current === projectId) return;
@@ -219,8 +234,11 @@ export function TaskEditor({
     setPriority(next.priority);
     setSelectedLabels(next.labels);
     setDevelopmentContext(null);
+    setParentId(defaultParentId);
+    setRelatedIds([]);
+    setSubIssueIds([]);
     developmentEditedRef.current = false;
-  }, [projectId, currentUser, availableLabels, task]);
+  }, [projectId, currentUser, availableLabels, task, defaultParentId]);
 
   useEffect(() => {
     if (task || developmentEditedRef.current) return;
@@ -236,7 +254,7 @@ export function TaskEditor({
     return options;
   }, [developmentContext, developmentScan.contexts]);
 
-  const taskById = useMemo(() => new Map(tasks.map((candidate) => [candidate.id, candidate])), [tasks]);
+  const taskById = useMemo(() => new Map(referenceTasks.map((candidate) => [candidate.id, candidate])), [referenceTasks]);
   const availableRelationTasks = tasks.filter((candidate) => candidate.archivedAt === null);
   const selectedParent = parentId ? taskById.get(parentId) ?? null : null;
   const selectedRelated = relatedIds
