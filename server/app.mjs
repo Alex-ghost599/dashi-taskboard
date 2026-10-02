@@ -31,6 +31,9 @@ import {
 import { ApiError, TaskboardDatabase } from "./database.mjs";
 import { createJiraConfigStore } from "./jira-config.mjs";
 import { createJiraIntegration } from "./jira-integration.mjs";
+import { previewProjectConversations, readProjectConversationSource } from "./conversation-import-preview.mjs";
+import { extractConversationUserText } from "./conversation-proposal-text.mjs";
+import { createConversationImportProposals } from "./conversation-import-proposals.mjs";
 import { ProjectSummaryService } from "./project-summary.mjs";
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -1703,6 +1706,8 @@ export function resolveServerOptions(options = {}) {
       ?? environment.CODEX_TASKBOARD_SKILL_PATH
       ?? path.join(PROJECT_ROOT, "skills", "manage-taskboard", "SKILL.md"),
     codexExecutable: resolveCodexExecutable({ explicit: options.codexExecutable }),
+    conversationSessionsRoot: options.conversationSessionsRoot ?? path.join(codexHome, "sessions"),
+    conversationArchivedSessionsRoot: options.conversationArchivedSessionsRoot ?? path.join(codexHome, "archived_sessions"),
     codexStatePath: options.codexStatePath
       ?? path.join(codexHome, ".codex-global-state.json"),
     codexProcessesPath: options.codexProcessesPath
@@ -1740,6 +1745,17 @@ export function createTaskboardServer(options = {}) {
   );
   const routePrefix = resolved.instanceToken ? `/${resolved.instanceToken}` : "";
   const database = new TaskboardDatabase(resolved.databasePath);
+  let conversationPreviewController = null;
+  const conversationProposals = createConversationImportProposals({
+    getProject: id => database.getProject(id),
+    readSource: input => readProjectConversationSource({
+      ...input, sessionsRoot: resolved.conversationSessionsRoot,
+      ...(input.sourceFile.scope === "archived_sessions"
+        ? { archivedSessionsRoot: resolved.conversationArchivedSessionsRoot } : {}),
+    }),
+    extractText: extractConversationUserText,
+    saveTask: (input, evidence) => database.createConversationImportTask(input, evidence),
+  });
   const events = new EventHub();
   let clientStorageWrite = Promise.resolve();
 
@@ -2195,6 +2211,94 @@ export function createTaskboardServer(options = {}) {
           });
         }
         return sendJson(response, 200, { status: "ok" });
+      }
+
+      if (pathname === "/api/local/conversation-import-preview") {
+        if (request.method !== "GET") return methodNotAllowed(response, ["GET"]);
+        if ([...url.searchParams.keys()].some(key => key !== "projectId" && key !== "includeArchived")) {
+          throw new ApiError(400, "UNKNOWN_QUERY_PARAMETER", "Only projectId and includeArchived are accepted");
+        }
+        const projectId = url.searchParams.get("projectId");
+        const includeArchived = url.searchParams.get("includeArchived");
+        if (includeArchived !== null && includeArchived !== "true" && includeArchived !== "false") {
+          throw new ApiError(400, "INVALID_ARCHIVE_SCOPE", "includeArchived must be true or false");
+        }
+        validateProjectId(projectId);
+        const project = database.getProject(projectId);
+        if (!project) throw new ApiError(404, "PROJECT_NOT_FOUND", "Project does not exist");
+        if (projectId === JIRA_PROJECT_ID || !project.workspacePath) {
+          throw new ApiError(409, "PROJECT_WORKSPACE_REQUIRED", "A local project workspace is required");
+        }
+        if (conversationPreviewController) {
+          throw new ApiError(503, "CONVERSATION_PREVIEW_BUSY", "A source preview is already in progress");
+        }
+        const controller = new AbortController();
+        conversationPreviewController = controller;
+        const cancel = () => { if (!response.writableFinished) controller.abort(); };
+        response.once("close", cancel);
+        try {
+          return sendJson(response, 200, await previewProjectConversations({
+            sessionsRoot: resolved.conversationSessionsRoot, project,
+            ...(includeArchived === "true" ? { archivedSessionsRoot: resolved.conversationArchivedSessionsRoot } : {}),
+            signal: AbortSignal.any([controller.signal, AbortSignal.timeout(5000)]),
+            existing: [...database.listTasks({ projectId }), ...database.listConversationImports(projectId)
+              .map(source => ({ id: source.taskId, projectId, threadId: source.evidence.threadId }))],
+          }));
+        } catch (cause) {
+          throw Object.assign(new ApiError(503, "CONVERSATION_SOURCE_UNAVAILABLE", "Conversation source cannot be safely read"), { cause });
+        } finally {
+          response.off("close", cancel);
+          conversationPreviewController = null;
+        }
+      }
+
+      if (["/api/local/conversation-import-proposal", "/api/local/conversation-import-save",
+        "/api/local/conversation-import-discard"].includes(pathname)) {
+        if (request.method !== "POST") return methodNotAllowed(response, ["POST"]);
+        if ([...url.searchParams.keys()].length) {
+          throw new ApiError(400, "UNKNOWN_QUERY_PARAMETER", "No query parameters are accepted");
+        }
+        const actor = actorFromRequest(request);
+        const actorIdentity = JSON.stringify([actor.type, actor.id]);
+        const input = await readJson(request);
+        if (pathname.endsWith("-discard")) {
+          if (!input || Array.isArray(input) || Object.keys(input).some(key => key !== "proposalId")
+            || typeof input.proposalId !== "string" || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(input.proposalId)) {
+            throw new ApiError(400, "INVALID_PROPOSAL_INPUT", "Only proposalId is accepted");
+          }
+          try {
+            return sendJson(response, 200, { discarded: conversationProposals.discard(input.proposalId, actorIdentity), authorizesDispatch: false });
+          } catch (cause) {
+            throw Object.assign(new ApiError(cause.code === "ACTOR_MISMATCH" ? 403 : 409,
+              cause.code ?? "PROPOSAL_UNAVAILABLE", "Conversation proposal cannot be discarded"), { cause });
+          }
+        }
+        if (conversationPreviewController) {
+          throw new ApiError(503, "CONVERSATION_PREVIEW_BUSY", "A source read is already in progress");
+        }
+        const controller = new AbortController();
+        conversationPreviewController = controller;
+        const cancel = () => { if (!response.writableFinished) controller.abort(); };
+        response.once("close", cancel);
+        try {
+          const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(5000)]);
+          if (pathname.endsWith("-proposal")) {
+            return sendJson(response, 200, await conversationProposals.prepare(input, actorIdentity, { signal }));
+          }
+          const result = await conversationProposals.save(input, actorIdentity, { signal, actor });
+          if (!result.alreadyImported && !result.replayed) events.emit("task.created", { task: result.task });
+          return sendJson(response, 200, { ...result, authorizesDispatch: false });
+        } catch (cause) {
+          if (cause instanceof ApiError) throw cause;
+          const code = typeof cause.code === "string" ? cause.code : "CONVERSATION_SOURCE_UNAVAILABLE";
+          const status = code === "ACTOR_MISMATCH" ? 403
+            : /INVALID/.test(code) ? 400
+            : /SOURCE_UNAVAILABLE|SOURCE_SIZE_LIMIT|INPUT_LIMIT/.test(code) ? 503 : 409;
+          throw Object.assign(new ApiError(status, code, "Conversation proposal cannot be safely prepared or saved"), { cause });
+        } finally {
+          response.off("close", cancel);
+          conversationPreviewController = null;
+        }
       }
 
       if (pathname === "/api/client-storage") {
@@ -3559,6 +3663,8 @@ export function createTaskboardServer(options = {}) {
       return server.address();
     },
     async close() {
+      conversationPreviewController?.abort();
+      conversationProposals.clear();
       for (const { localSocket, remoteSocket } of cloudRealtimeSockets) {
         localSocket.terminate();
         remoteSocket.terminate();
