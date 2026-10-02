@@ -5,12 +5,12 @@ import os from 'node:os';
 import path from 'node:path';
 import {TaskboardDatabase} from '../server/database.mjs';
 const actor={type:'user',id:'synthetic',name:'Synthetic',avatarUrl:null};
-const evidence={projectId:'synthetic',threadId:'11111111-1111-4111-8111-111111111111',workspacePath:'/tmp/synthetic',scope:'sessions',path:'2026/10/02/source.jsonl',headerSha256:'a'.repeat(64),inputSha256:'b'.repeat(64),byteLength:100};
+const evidence={projectId:'synthetic',threadId:'11111111-1111-4111-8111-111111111111',workspacePath:path.resolve(os.tmpdir(),'synthetic'),scope:'sessions',path:'2026/10/02/source.jsonl',headerSha256:'a'.repeat(64),inputSha256:'b'.repeat(64),byteLength:100};
 async function fixture(check) {
   const dir=await mkdtemp(path.join(os.tmpdir(),'dashi-import-db-'));
   const filename=path.join(dir,'taskboard.sqlite');
   let database=new TaskboardDatabase(filename);
-  try {database.createProject({id:'synthetic',name:'Synthetic',workspacePath:'/tmp/synthetic'});await check(database,()=>{
+  try {database.createProject({id:'synthetic',name:'Synthetic',workspacePath:path.resolve(os.tmpdir(),'synthetic')});await check(database,()=>{
     const next=new TaskboardDatabase(filename);database.close();database=next;return next;
   });}
   finally {database.close();await rm(dir,{recursive:true,force:true});}
@@ -41,7 +41,7 @@ test('source project mismatch and extra dispatch fields are refused',async()=>fi
   assert.equal(db.listTasks({projectId:'synthetic'}).length,0);
 }));
 test('source-owned card cannot move to a different project and mislead deduplication',async()=>fixture(async db=>{
-  db.createProject({id:'other',name:'Other',workspacePath:'/tmp/other'});
+  db.createProject({id:'other',name:'Other',workspacePath:path.resolve(os.tmpdir(),'other')});
   const {task}=db.createConversationImportTask(input(),evidence);
   assert.throws(()=>db.updateTask(task.id,task.version,{projectId:'other'},null,null,actor),error=>error.code==='CONVERSATION_IMPORT_PROJECT_MOVE_UNAVAILABLE');
   assert.equal(db.getTask(task.id).projectId,'synthetic');
