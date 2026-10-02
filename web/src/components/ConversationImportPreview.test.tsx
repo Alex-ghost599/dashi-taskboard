@@ -38,3 +38,18 @@ test('closing a pending preview keeps a late response out of the visible project
   expect(screen.queryByText('late-source')).toBeNull();
   expect(screen.getByRole('button',{name:'预览本项目会话来源'})).toBeTruthy();
 });
+
+test('archive source selection needs another explicit preview and unavailable roots stay visible',async()=>{
+  api.previewProjectConversations.mockResolvedValue({complete:true,excludedFiles:0,conflictingThreadIds:[],candidates:[]});
+  render(<ConversationImportPreview projectId="p1"/>);
+  fireEvent.click(screen.getByRole('button',{name:'预览本项目会话来源'}));
+  await screen.findByText('没有匹配的会话来源');
+  expect(api.previewProjectConversations).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole('checkbox'));
+  expect(api.previewProjectConversations).toHaveBeenCalledTimes(1);
+  api.previewProjectConversations.mockResolvedValue({complete:false,excludedFiles:0,conflictingThreadIds:[],unavailableSources:[{scope:'archived_sessions',code:'SOURCE_UNAVAILABLE'}],candidates:[]});
+  fireEvent.click(screen.getByRole('button',{name:'预览本项目会话来源'}));
+  expect(await screen.findByRole('alert')).toHaveProperty('textContent',expect.stringContaining('1 个来源根不可用'));
+  expect(api.previewProjectConversations.mock.calls[1][1].includeArchived).toBe(true);
+  expect(screen.queryByText('没有匹配的会话来源')).toBeNull();
+});

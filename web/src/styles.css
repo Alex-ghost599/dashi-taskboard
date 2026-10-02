@@ -11891,3 +11891,6 @@ kbd {
 .conversation-preview-dialog { width: min(720px, calc(100vw - 32px)); max-height: 80vh; overflow: auto; }
 .conversation-preview-dialog { overflow-wrap: anywhere; }
 .conversation-preview-dialog li { margin-bottom: 12px; }
+
+.conversation-preview-dialog > .conversation-preview-content { display: block; margin-top: 16px; }
+.conversation-preview-dialog p { font-size: 13px; margin: 6px 0; }

@@ -842,14 +842,15 @@ export interface ConversationSourcePreview {
   conflictingThreadIds: string[];
   saved: false;
   authorizesDispatch: false;
+  unavailableSources?: { scope: string; code: string }[];
   candidates: {
     threadId: string;
     status: null;
     existingTaskIds: string[];
-    sourceFiles: {path: string; headerSha256: string; timestamp: string | null}[];
+    sourceFiles: {scope?: string; path: string; headerSha256: string; timestamp: string | null}[];
   }[];
 }
 
-export async function previewProjectConversations(projectId: string, options: {signal?: AbortSignal} = {}): Promise<ConversationSourcePreview> {
-  return request<ConversationSourcePreview>(`/api/local/conversation-import-preview?projectId=${encodeURIComponent(projectId)}`, {signal: options.signal});
+export async function previewProjectConversations(projectId: string, options: {signal?: AbortSignal; includeArchived?: boolean} = {}): Promise<ConversationSourcePreview> {
+  return request<ConversationSourcePreview>(`/api/local/conversation-import-preview?projectId=${encodeURIComponent(projectId)}${options.includeArchived ? "&includeArchived=true" : ""}`, {signal: options.signal});
 }
