@@ -184,3 +184,7 @@ OBS-03 CI诊断：PR57首轮check在既有AiChat中断用例失败，WAIT模拟�
 验证：Node 602 通过、1 跳过、0 失败；组件 27/27，typecheck 与 build:web 通过。独立 reviewer 对各增量复核 Critical 0、Important 0。隔离浏览器使用模拟 resolver 完成建卡、重复提示、来源撤销并刷新、绑定预览/确认/解绑；数据库读回 1 张卡、已撤销来源、空执行绑定及 0 次执行尝试。模拟来源不证明真实 Codex 身份，reviewer 的回执审核也不等同于独立重做 UI。
 
 尚未完成：真实 Codex getter 响应及项目归属、正式安装与集成验收。#34 保持开放，不能据此晋级 main 或启用业务派发。运行与回滚限制见 LOCAL_DEPLOYMENT.md。
+
+### PR #63 候选追加验证（2026-10-02）
+
+远端旧 CI 的 check/Windows 测试失败已定位：CDP 握手取消发生同步 close/error 重入，Windows 打开数据库的 rename 与连接清理顺序不兼容。候选增加幂等停止及缺陷回归，保留 POSIX 文件替换检测与 Windows OS 拒绝替换断言。新增安装双库备份/隔离恢复 11 项测试通过，独立审核两项 Important 修复后为 0/0。CDP/文件替换相关 26 项在 Node 25.5.0 与包内 Node 22.23.2 通过，独立审核 0/0；组件 27/27、typecheck、build:web 通过。重新安装锁定依赖后全量检查与新 CI 仍待结果；PR 保持 draft，未替换正式安装。
