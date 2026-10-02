@@ -67,12 +67,10 @@ export class NativeSnapshotReader {
         const labels = JSON.parse(row.labels);
         if (!Array.isArray(labels) || labels.some((label) => typeof label !== "string")) throw new Error("INVALID_LABELS");
         const flags = labels.map((label) => label.trim().toLowerCase());
-        let binding = null;
-        if (row.thread_id) {
-          binding = row.thread_codex_project_id && row.thread_codex_project_kind && row.thread_codex_host_id && row.thread_workspace_path
-            ? { threadId: row.thread_id, projectId: row.thread_codex_project_id, hostId: row.thread_codex_host_id, workspacePath: row.thread_workspace_path }
-            : { threadId: row.thread_id }; // Deliberately rejected by candidate normalization.
-        }
+        // These fields record conversation provenance, not trusted execution ownership.
+        // Until a dedicated binding reader exists, even partial provenance must fail closed.
+        const executionBindingUnverified = [row.thread_id, row.thread_codex_project_id, row.thread_codex_project_kind,
+          row.thread_codex_host_id, row.thread_workspace_path].some((value) => value !== null);
         const metadata = { projectWorkspacePath: project.workspace_path, priority: row.priority, startDate: row.start_date, dueDate: row.due_date,
           branch: row.git_branch, worktreePath: row.worktree_path, worktreeBranch: row.worktree_branch,
           recurrenceInterval: row.recurrence_interval, recurrenceUnit: row.recurrence_unit,
@@ -81,7 +79,7 @@ export class NativeSnapshotReader {
           status: row.status === "canceled" ? "cancelled" : row.status, archived: row.archived_at !== null,
           executionAgent: row.assignee_type === "agent" && row.assignee_id === "codex-agent" ? "codex" : null,
           labels, hold: flags.includes("hold"), executionForbidden: flags.includes("do-not-execute") || flags.includes("禁止执行"),
-          dependencyIds: dependencies, executionBinding: binding,
+          dependencyIds: dependencies, executionBinding: null, executionBindingUnverified,
           instructions: [{ id: "native-task-context", text: JSON.stringify(metadata) }, ...comments.map((comment) => ({
             id: comment.id, text: JSON.stringify({ body: comment.body, authorType: comment.author_type, authorId: comment.author_id }),
           }))] });
