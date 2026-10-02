@@ -35,7 +35,7 @@ test("native snapshot uses assignee rather than creator and keeps human comments
   assert.equal(assessCandidate(foreign.id, reader.read("p1", "1")).reason, "EXECUTOR_NOT_CODEX");
 });
 
-test("native snapshot includes completed dependencies and rejects hold and incomplete bindings", (t) => {
+test("native snapshot includes completed dependencies and rejects hold and unverified sources", (t) => {
   const { writer, reader, create } = setup(t);
   const dependency = create({ status: "done", description: "DEPENDENCY_CONTENT_NOT_NEEDED" });
   const task = create();
@@ -45,7 +45,61 @@ test("native snapshot includes completed dependencies and rejects hold and incom
   const held = create({ labels: ["hold"] });
   assert.equal(assessCandidate(held.id, reader.read("p1", "1")).reason, "HOLD");
   const legacy = create({ threadId: "legacy-thread" });
-  assert.equal(assessCandidate(legacy.id, reader.read("p1", "1")).reason, "INVALID_SNAPSHOT");
+  assert.equal(assessCandidate(legacy.id, reader.read("p1", "1")).reason, "SOURCE_BINDING_UNVERIFIED");
+});
+
+test("a complete source conversation never becomes a native execution binding", (t) => {
+  const { reader, create, root } = setup(t);
+  const source = create({ threadBinding: { threadId: "source-thread", codexProjectId: "p1",
+    codexProjectKind: "local", codexHostId: "local", workspacePath: root } });
+  const snapshot = reader.read("p1", "1");
+  const result = assessCandidate(source.id, snapshot);
+  assert.equal(result.decision, "blocked");
+  assert.equal(result.reason, "SOURCE_BINDING_UNVERIFIED");
+  assert.equal(result.authorizesDispatch, false);
+  const item = snapshot.tasks.find((entry) => entry.id === source.id);
+  assert.equal(item.executionBinding, null);
+  assert.equal(item.executionBindingUnverified, true);
+});
+
+test("any partial native source field fails closed, including an empty stored field", (t) => {
+  const { writer, reader, create, root } = setup(t);
+  for (const [field, value] of [["thread_id", "source-thread"], ["thread_codex_project_id", "p1"],
+    ["thread_codex_project_kind", "local"], ["thread_codex_host_id", "local"],
+    ["thread_workspace_path", root], ["thread_id", ""]]) {
+    const source = create();
+    writer.database.prepare(`UPDATE tasks SET ${field}=? WHERE id=?`).run(value, source.id);
+    const snapshot = reader.read("p1", "1");
+    assert.equal(assessCandidate(source.id, snapshot).reason, "SOURCE_BINDING_UNVERIFIED", field);
+    assert.equal(snapshot.tasks.find((item) => item.id === source.id).executionBinding, null);
+  }
+});
+
+test("native snapshots retain agent instructions even when the body resembles a receipt", (t) => {
+  const { writer, reader, create } = setup(t);
+  const task = create();
+  const before = assessCandidate(task.id, reader.read("p1", "1"));
+  writer.createComment(task.id, { body: "[system_receipt] Review found a missing migration; add it before continuing", actor: codex });
+  const snapshot = reader.read("p1", "1");
+  const after = assessCandidate(task.id, snapshot);
+  assert.equal(after.decision, "candidate");
+  assert.notEqual(after.semanticInputVersion, before.semanticInputVersion);
+  assert.notEqual(after.judgmentKey, before.judgmentKey);
+  assert.ok(snapshot.tasks.find((item) => item.id === task.id).instructions.some((item) => item.text.includes("missing migration")));
+});
+
+test("separate task activity receipts do not invalidate native judgment keys", (t) => {
+  const { writer, reader, create } = setup(t);
+  const task = create();
+  const before = assessCandidate(task.id, reader.read("p1", "1"));
+  writer.database.prepare(`INSERT INTO task_activities (id, task_id, actor_type, actor_id, actor_name,
+    actor_avatar_url, changes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run("receipt-1", task.id, "agent", "codex-agent", "Codex", null,
+      JSON.stringify([{ kind: "system_receipt", text: "Candidate checked" }]), "2026-10-03T00:00:00.000Z");
+  const after = assessCandidate(task.id, reader.read("p1", "1"));
+  assert.equal(after.semanticInputVersion, before.semanticInputVersion);
+  assert.equal(after.judgmentKey, before.judgmentKey);
+  assert.equal(writer.listComments(task.id).length, 0);
 });
 
 test("snapshot does not touch task versions, audit state or database contents", (t) => {

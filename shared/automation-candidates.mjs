@@ -15,6 +15,7 @@ function normalize(task, budget) {
     || !Array.isArray(task.labels) || task.labels.length > 100
     || !task.labels.every((label) => text(label, 200))
     || !(task.executionAgent === null || identifier(task.executionAgent))
+    || (Object.hasOwn(task, "executionBindingUnverified") && typeof task.executionBindingUnverified !== "boolean")
     || !Array.isArray(task.instructions) || task.instructions.length > 1000
     || !task.instructions.every((item) => item && identifier(item.id) && text(item.text, 200000))
     || new Set(task.instructions.map((item) => item.id)).size !== task.instructions.length) throw new Error("Invalid task snapshot");
@@ -42,6 +43,8 @@ function normalize(task, budget) {
     title: task.title, description: task.description, labels: [...new Set(task.labels)].sort(),
     executionAgent: task.executionAgent, hold: task.hold, executionForbidden: task.executionForbidden,
     dependencyIds: [...task.dependencyIds].sort(), executionBinding: binding,
+    // Absent and false retain existing keys; an unverified source invalidates cached judgments.
+    ...(task.executionBindingUnverified === true ? { executionBindingUnverified: true } : {}),
     instructions: task.instructions.map(({ id, text: content }) => ({ id, text: content })) };
 }
 
@@ -90,6 +93,7 @@ export function assessCandidate(taskId, context) {
   if (task.executionForbidden) return blocked("EXECUTION_FORBIDDEN", versions);
   if (task.executionAgent !== "codex") return blocked("EXECUTOR_NOT_CODEX", versions);
   if (!context.projectIds.includes(task.projectId)) return blocked("PROJECT_UNKNOWN", versions);
+  if (task.executionBindingUnverified) return blocked("SOURCE_BINDING_UNVERIFIED", versions);
   if (context.unresolvedTaskIds.includes(task.id)) return blocked("UNRESOLVED_ATTEMPT", versions);
   if (dependencyProblem) return blocked(dependencyProblem, versions);
   if (dependencyState.some((dep) => !context.projectIds.includes(dep.projectId))) return blocked("DEPENDENCY_PROJECT_UNKNOWN", versions);

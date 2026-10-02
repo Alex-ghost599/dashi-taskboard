@@ -41,6 +41,33 @@ test("local guards reject held, forbidden, archived, ambiguous, foreign and unre
   assert.equal(assessCandidate("t1", context({ tasks: [task(), task()] })).reason, "AMBIGUOUS_TASK");
 });
 
+test("unverified source bindings block candidates and invalidate cached judgments", () => {
+  const original = assessCandidate("t1", context());
+  const unverified = assessCandidate("t1", context({ tasks: [task({ executionBindingUnverified: true })] }));
+  assert.equal(unverified.decision, "blocked");
+  assert.equal(unverified.reason, "SOURCE_BINDING_UNVERIFIED");
+  assert.equal(unverified.authorizesDispatch, false);
+  assert.notEqual(unverified.semanticInputVersion, original.semanticInputVersion);
+  assert.notEqual(unverified.judgmentKey, original.judgmentKey);
+  const verified = assessCandidate("t1", context({ tasks: [task({ executionBindingUnverified: false })] }));
+  assert.equal(verified.semanticInputVersion, original.semanticInputVersion);
+  assert.equal(verified.judgmentKey, original.judgmentKey);
+  const explicitBinding = { threadId: "execution-thread", hostId: "local", projectId: "p1", workspacePath: "/fixture" };
+  assert.equal(assessCandidate("t1", context({ tasks: [task({ executionBinding: explicitBinding })] })).decision, "candidate");
+  assert.equal(assessCandidate("t1", context({ tasks: [task({ executionBinding: explicitBinding,
+    executionBindingUnverified: false })] })).decision, "candidate");
+  assert.equal(assessCandidate("t1", context({ tasks: [task({ executionBinding: explicitBinding,
+    executionBindingUnverified: true })] })).reason, "SOURCE_BINDING_UNVERIFIED");
+});
+
+test("malformed unverified-binding markers cannot bypass the source guard", () => {
+  for (const value of [undefined, null, "false", "true", 0, 1, {}, []]) {
+    const result = assessCandidate("t1", context({ tasks: [task({ executionBindingUnverified: value })] }));
+    assert.equal(result.reason, "INVALID_SNAPSHOT");
+    assert.equal(result.authorizesDispatch, false);
+  }
+});
+
 test("missing and cyclic dependencies fail closed; completion invalidates semantic version", () => {
   const main = task({ dependencyIds: ["t2"] });
   const pending = task({ id: "t2", status: "in_review" });
