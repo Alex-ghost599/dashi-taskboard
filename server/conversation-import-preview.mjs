@@ -6,7 +6,67 @@ import {createHash} from 'node:crypto';
 const HEADER_LIMIT=16*1024;
 const THREAD_ID=/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
 
-async function readMetadata(file,root,signal,verifyRoot) {
+// A UI selection is evidence to re-check, never permission to open a client path.
+export async function readProjectConversationSource({sessionsRoot,archivedSessionsRoot,project,threadId,sourceFile,maxBytes=2*1024*1024,signal}) {
+  if(!THREAD_ID.test(threadId??'')||!Number.isInteger(maxBytes)||maxBytes<1||maxBytes>2*1024*1024
+    ||typeof sourceFile?.path!=='string'||typeof sourceFile?.headerSha256!=='string'
+    ||!['sessions','archived_sessions'].includes(sourceFile?.scope)) throw new Error('INVALID_SOURCE_SELECTION');
+  const preview=await previewProjectConversations({sessionsRoot,archivedSessionsRoot,project,signal});
+  const candidate=preview.candidates.find(item=>item.threadId===threadId);
+  const selected=candidate?.sourceFiles.find(item=>item.scope===sourceFile.scope&&item.path===sourceFile.path&&item.headerSha256===sourceFile.headerSha256);
+  if(!selected) throw new Error('SOURCE_NOT_SELECTED');
+  const requestedRoot=path.resolve(selected.scope==='sessions'?sessionsRoot:archivedSessionsRoot);
+  const initialRoot=await lstat(requestedRoot);
+  const root=await realpath(requestedRoot);
+  const verifyRoot=async()=>{
+    signal?.throwIfAborted();
+    for(const value of [await lstat(requestedRoot),await lstat(root)]) {
+      if(!value.isDirectory()||value.isSymbolicLink()||value.dev!==initialRoot.dev||value.ino!==initialRoot.ino) throw new Error('SESSIONS_ROOT_CHANGED');
+    }
+    if(await realpath(requestedRoot)!==root) throw new Error('SESSIONS_ROOT_CHANGED');
+  };
+  const file=path.join(root,selected.path);
+  const meta=await readMetadata(file,root,signal,verifyRoot,true);
+  if(meta.threadId!==threadId||meta.workspacePath!==candidate.workspacePath||meta.headerSha256!==selected.headerSha256) throw new Error('SOURCE_CHANGED');
+  const before=await lstat(file);
+  for(const key of ['dev','ino','size','mtimeMs','ctimeMs']) {
+    if(before[key]!==meta.fileIdentity[key]) throw new Error('SOURCE_CHANGED');
+  }
+  if(!before.isFile()||before.isSymbolicLink()||before.size>maxBytes) throw new Error('SOURCE_SIZE_LIMIT');
+  const handle=await open(file,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);
+  let result;
+  try {
+    const stat=await handle.stat();
+    const verifyFile=async()=>{
+      await verifyRoot();
+      if(await realpath(file)!==file) throw new Error('SOURCE_CHANGED');
+      for(const value of [await handle.stat(),await lstat(file)]) {
+        if(!value.isFile()||value.isSymbolicLink()||value.dev!==before.dev||value.ino!==before.ino||value.size!==before.size||value.mtimeMs!==before.mtimeMs||value.ctimeMs!==before.ctimeMs) throw new Error('SOURCE_CHANGED');
+      }
+      signal?.throwIfAborted();
+    };
+    if(stat.dev!==before.dev||stat.ino!==before.ino) throw new Error('SOURCE_CHANGED');
+    await verifyFile();
+    const buffer=Buffer.alloc(before.size);
+    let offset=0;
+    while(offset<buffer.length) {
+      signal?.throwIfAborted();
+      const {bytesRead}=await handle.read(buffer,offset,Math.min(64*1024,buffer.length-offset),offset);
+      if(!bytesRead) throw new Error('SOURCE_CHANGED');
+      offset+=bytesRead;
+    }
+    await verifyFile();
+    const newline=buffer.indexOf(10);
+    if(newline<0||createHash('sha256').update(buffer.subarray(0,newline)).digest('hex')!==selected.headerSha256) throw new Error('SOURCE_CHANGED');
+    signal?.throwIfAborted();
+    result={buffer,evidence:{projectId:project.id,threadId,workspacePath:candidate.workspacePath,...selected,
+      inputSha256:createHash('sha256').update(buffer).digest('hex'),byteLength:buffer.length},authorizesDispatch:false};
+  } finally {await handle.close();}
+  signal?.throwIfAborted();
+  return result;
+}
+
+async function readMetadata(file,root,signal,verifyRoot,includeIdentity=false) {
   signal?.throwIfAborted();
   await verifyRoot();
   // Only parse the metadata line; block reads can include discarded body bytes.
@@ -43,7 +103,8 @@ async function readMetadata(file,root,signal,verifyRoot) {
     const meta=record?.payload;
     if(record.type!=='session_meta'||!THREAD_ID.test(meta?.id??'')||typeof meta?.cwd!=='string'||!path.isAbsolute(meta.cwd)) throw new Error('INVALID_METADATA');
     return {threadId:meta.id,workspacePath:path.resolve(meta.cwd),timestamp:typeof meta.timestamp==='string'&&meta.timestamp.length<=64?meta.timestamp:null,
-      headerSha256:createHash('sha256').update(header).digest('hex')};
+      headerSha256:createHash('sha256').update(header).digest('hex'),
+      ...(includeIdentity?{fileIdentity:{dev:stat.dev,ino:stat.ino,size:stat.size,mtimeMs:stat.mtimeMs,ctimeMs:stat.ctimeMs}}:{})};
   } finally {await handle.close();}
 }
 
