@@ -93,13 +93,13 @@ it("switching projects clears old active and archived cards while pending and af
   await switchToB();
   expect(screen.queryByText("Previous active card")).toBeNull();
   expect(screen.queryByText("Previous archived card")).toBeNull();
-  expect(screen.queryByRole("button", { name: "Import current project task status" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Prepare AI organization request" })).toBeNull();
   await act(async () => pending.reject(new Error("Synthetic load failure")));
   expect(await screen.findByText("Synthetic load failure")).toBeTruthy();
   expect(screen.queryByText("Previous active card")).toBeNull();
   expect(screen.queryByText("Previous archived card")).toBeNull();
   expect(screen.queryByRole("heading", { name: "Unable to load project issues" })).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "Import current project task status" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Prepare AI organization request" })).toBeNull();
 });
 it("an archived-only project explains the existing archive without offering import", async () => {
   vi.mocked(api.listTasks).mockResolvedValue([]);
@@ -107,7 +107,7 @@ it("an archived-only project explains the existing archive without offering impo
   expect(await screen.findByRole("heading", { name: "No active issues in this project" })).toBeTruthy();
   expect(screen.getByText(/1 archived issue/)).toBeTruthy();
   expect(screen.queryByText("This project has no issues yet")).toBeNull();
-  expect(screen.queryByRole("button", { name: "Import current project task status" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Prepare AI organization request" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "View archived issues" }));
   expect(await screen.findByText("Previous archived card")).toBeTruthy();
 });
@@ -118,13 +118,13 @@ it("a confirmed empty project offers import, but a failed refresh removes that s
   vi.mocked(api.listArchivedTasks).mockResolvedValue([]);
   render(<App />);
   await screen.findByRole("heading", { name: "This project has no issues yet" });
-  expect(screen.queryByRole("button", { name: "Import current project task status" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Prepare AI organization request" })).toBeNull();
   await act(async () => catalog.resolve({ models: [], skills: [], sandboxes: [] }));
-  expect(await screen.findByRole("button", { name: "Import current project task status" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Prepare AI organization request" })).toBeTruthy();
   vi.mocked(api.listTasks).mockRejectedValue(new Error("Synthetic refresh failure"));
   act(() => realtime.invalidate());
   await screen.findByText("Synthetic refresh failure");
-  expect(screen.queryByRole("button", { name: "Import current project task status" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Prepare AI organization request" })).toBeNull();
   expect(screen.getByRole("heading", { name: "Unable to load project issues" })).toBeTruthy();
 });
 it("same-project refresh retains valid cards while pending and after failure", async () => {
@@ -161,7 +161,7 @@ it("archived-only projects keep archive cards visible when archive is a main col
     JSON.stringify({ cover: true, body: false, mainStatuses: ["todo", "archived"], sidebarStatuses: [], hiddenStatuses: ["backlog", "in_progress", "in_review", "blocked", "done", "canceled"] })]]);
   render(<App />);
   expect(await screen.findByText("Previous archived card")).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "Import current project task status" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Prepare AI organization request" })).toBeNull();
 });
 it("a hidden archive explains how to reveal it without offering an unusable archive action", async () => {
   vi.mocked(api.listTasks).mockResolvedValue([]);
@@ -181,7 +181,7 @@ it.each(["List", "Gantt", "Dashboard"])("%s explains archived-only data even whe
   fireEvent.click(screen.getByRole("button", { name: view }));
   expect(await screen.findByRole("heading", { name: "No active issues in this project" })).toBeTruthy();
   expect(screen.getByText(/1 archived issue/)).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "Import current project task status" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Prepare AI organization request" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "View archived issues" }));
   expect(await screen.findByText("Previous archived card")).toBeTruthy();
 });
@@ -193,7 +193,7 @@ it.each(["List", "Gantt", "Dashboard"])("%s explains archived-only data after th
   fireEvent.click(screen.getByRole("button", { name: view }));
   expect(await screen.findByRole("heading", { name: "No active issues in this project" })).toBeTruthy();
   expect(screen.getByText(/1 archived issue/)).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "Import current project task status" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Prepare AI organization request" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "View archived issues" }));
   expect(await screen.findByText("Previous archived card")).toBeTruthy();
 });
