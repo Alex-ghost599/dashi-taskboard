@@ -172,3 +172,7 @@ OBS-03 CI诊断：PR57首轮check在既有AiChat中断用例失败，WAIT模拟�
 
 ## 安装进程查询收敛
 个人安装器仅查询PID和可执行文件路径，避免读取其他进程的完整命令行及其中的凭据。个人App运行时拒绝替换的门槛保持不变；安装前仍须检查服务退出、备份范围和构建来源。
+
+## 双库备份独立修复候选
+
+安装器此前仅在线备份 taskboard.sqlite，遗漏 execution-control.sqlite；现将两个已知库在同一写锁窗口备份，保留附件同扩展文件，拒绝数据库持有者、根目录或内部符号链接及非普通数据库文件。11 项隔离 Python 测试通过，独立 validation-only reviewer 对新 develop 基线整合为 Critical 0 / Important 0；额外 schema4、权限、持有者错误和替换失败恢复探针通过。仅覆盖源码及合成运行，真实 macOS 安装与恢复、远端 CI 待验收。此独立修复不包含绑定 schema5 和 CDP 候选，也不据此关闭 Issue #34。
