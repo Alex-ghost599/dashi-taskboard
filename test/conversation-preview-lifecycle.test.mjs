@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import http from "node:http";
+import { DatabaseSync } from "node:sqlite";
 import os from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -20,10 +21,12 @@ async function fixture(t) {
     )));
   }
   const app = createTaskboardServer({ dataDirectory: path.join(root, "data"), conversationSessionsRoot: sessions, conversationArchivedSessionsRoot: path.join(root, "archived_sessions") });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  let closed = false;
+  const close = async () => { if (!closed) { closed = true; await app.close(); } };
+  t.after(async () => { await close(); await rm(root, { recursive: true, force: true }); });
   app.database.createProject({ id: "p1", name: "Synthetic", workspacePath: workspace });
   const address = await app.listen({ port: 0 });
-  return { app, archive: path.join(root, "archived_sessions"), workspace, url: `http://127.0.0.1:${address.port}/api/local/conversation-import-preview?projectId=p1` };
+  return { app, close, databasePath: app.options.databasePath, archive: path.join(root, "archived_sessions"), workspace, url: `http://127.0.0.1:${address.port}/api/local/conversation-import-preview?projectId=p1` };
 }
 
 test("overlapping HTTP previews reject extra work and release the slot afterwards", { timeout: 15000 }, async t => {
@@ -80,4 +83,22 @@ test("archive HTTP scope is explicit and stays in configured synthetic roots", {
   assert.equal(all.candidates.length, 301);
   assert.equal(all.candidates.filter(candidate => candidate.sourceFiles.some(source => source.scope === "archived_sessions")).length, 1);
   assert.equal(app.database.listTasks({ projectId: "p1" }).length, 0);
+});
+
+
+test("server shutdown cancels an active preview and completes without saving cards", { timeout: 15000 }, async t => {
+  const { app, close, databasePath, url } = await fixture(t);
+  const entered = new Promise(resolve => app.server.once("request", resolve));
+  const pending = fetch(url);
+  await entered;
+  assert.equal(app.database.listTasks({ projectId: "p1" }).length, 0);
+  const stopped = close();
+  const response = await pending;
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).error.code, "CONVERSATION_SOURCE_UNAVAILABLE");
+  await stopped;
+  assert.equal(app.server.listening, false);
+  const persisted = new DatabaseSync(databasePath, { readOnly: true });
+  try { assert.equal(persisted.prepare("SELECT count(*) AS count FROM tasks").get().count, 0); }
+  finally { persisted.close(); }
 });
