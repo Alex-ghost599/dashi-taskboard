@@ -91,6 +91,7 @@ export interface NewTaskEditorDraft {
   assignee: ActorIdentity;
   selectedLabels: string[];
   developmentContext: DevelopmentContext | null;
+  developmentContextTouched?: boolean;
   startDate: string;
   dueDate: string;
   recurrence: Recurrence | null;
@@ -190,7 +191,8 @@ export function TaskEditor({
   const defaults = readTaskEditorDefaults(projectId, actorKey(currentUser), availableLabels);
   const defaultsProjectRef = useRef(projectId);
   const formUserKeyRef = useRef(actorKey(currentUser));
-  const developmentEditedRef = useRef(Boolean(task || initialDraft));
+  const [developmentContextTouched, setDevelopmentContextTouched] = useState(Boolean(task)
+    || (initialDraft?.developmentContextTouched ?? Boolean(initialDraft?.developmentContext)));
   const [title, setTitle] = useState(task?.title ?? initialDraft?.title ?? "");
   const [description, setDescription] = useState(task?.description ?? "");
   const [descriptionSegments, setDescriptionSegments] = useState<InlineMediaSegment[]>(
@@ -222,10 +224,11 @@ export function TaskEditor({
     onDraftChangeRef.current?.({
       title, descriptionSegments, status, priority, assignee, selectedLabels,
       developmentContext, startDate, dueDate, recurrence,
+      developmentContextTouched,
       relations: { parentId, relatedIds, subIssueIds },
     });
   }, [task, title, descriptionSegments, status, priority, assignee, selectedLabels,
-    developmentContext, startDate, dueDate, recurrence, parentId, relatedIds, subIssueIds]);
+    developmentContext, developmentContextTouched, startDate, dueDate, recurrence, parentId, relatedIds, subIssueIds]);
 
   useEffect(() => {
     if (task || defaultsProjectRef.current === projectId) return;
@@ -237,14 +240,14 @@ export function TaskEditor({
     setParentId(defaultParentId);
     setRelatedIds([]);
     setSubIssueIds([]);
-    developmentEditedRef.current = false;
+    setDevelopmentContextTouched(false);
   }, [projectId, currentUser, availableLabels, task, defaultParentId]);
 
   useEffect(() => {
-    if (task || developmentEditedRef.current) return;
+    if (task || developmentContextTouched) return;
     setDevelopmentContext(!developmentScanLoading && developmentScanProjectId === projectId
       ? currentDevelopmentContext(developmentScan) : null);
-  }, [task, projectId, developmentScan, developmentScanProjectId, developmentScanLoading]);
+  }, [task, projectId, developmentContextTouched, developmentScan, developmentScanProjectId, developmentScanLoading]);
 
   const developmentOptions = useMemo(() => {
     const options = [...developmentScan.contexts];
@@ -501,6 +504,7 @@ export function TaskEditor({
       assignee,
       selectedLabels,
       developmentContext,
+      developmentContextTouched,
       startDate,
       dueDate,
       recurrence,
@@ -679,7 +683,8 @@ export function TaskEditor({
             />
 
             <TaskPropertyPicker
-              value={contextValue(developmentContext)}
+              // Keep an untouched null distinct so selecting the empty option records user intent.
+              value={contextValue(developmentContext) || (developmentContextTouched ? "" : "untouched")}
               options={[
                 {
                   value: "",
@@ -703,7 +708,7 @@ export function TaskEditor({
               ariaLabel={text("代码分支或 Worktree", "Code branch or worktree")}
               title={developmentScan.workspacePath ?? undefined}
               onOpenChange={(open) => setMenu(open ? "development" : null)}
-              onChange={(value) => { developmentEditedRef.current = true; setDevelopmentContext(value ? JSON.parse(value) as DevelopmentContext : null); }}
+              onChange={(value) => { setDevelopmentContextTouched(true); setDevelopmentContext(value ? JSON.parse(value) as DevelopmentContext : null); }}
             />
 
             <label className="property-control">
