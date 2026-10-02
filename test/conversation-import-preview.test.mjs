@@ -127,8 +127,8 @@ test('active and archived copies deduplicate with distinct evidence even when re
   const result=await previewProjectConversations({sessionsRoot:sessions,archivedSessionsRoot:archived,project:{id:'p1',workspacePath:workspace}});
   assert.deepEqual(result.candidates.map(item=>item.threadId),[first,second]);
   assert.deepEqual(result.candidates[0].sourceFiles.map(item=>({scope:item.scope,path:item.path})),[
-    {scope:'archived_sessions',path:'2026/10/02/same.jsonl'},
-    {scope:'sessions',path:'2026/10/02/same.jsonl'},
+    {scope:'archived_sessions',path:path.join('2026','10','02','same.jsonl')},
+    {scope:'sessions',path:path.join('2026','10','02','same.jsonl')},
   ]);
   assert.equal(result.candidates[1].sourceFiles[0].scope,'archived_sessions');
   assert.equal(result.candidates[1].sourceFiles[0].path,'flat.jsonl');
