@@ -195,6 +195,7 @@ interface ProjectChoice {
   inCodex: boolean;
   persisted: boolean;
   codexIdentity: CodexProjectIdentity | null;
+  workspacePath: string | null;
 }
 
 interface ProjectContextMenuState {
@@ -979,7 +980,9 @@ export function App() {
     text,
   ]);
   const aiImportProjectId = hasLoadedTasks
+    && !loadError
     && tasks.length === 0
+    && archivedTasks.length === 0
     && selectedProject
     && selectedProject.id !== GLOBAL_PROJECT_ID
     && !isJiraProject
@@ -1181,6 +1184,7 @@ export function App() {
         issueCount: persistedById.get(project.id)?.issueCount ?? 0,
         inCodex: true,
         persisted: persistedById.has(project.id),
+        workspacePath: deviceWorkspacePaths[project.id] ?? project.workspacePath ?? persistedById.get(project.id)?.workspacePath ?? null,
         codexIdentity: project.workspacePath && project.projectKind && project.hostId
           ? {
               codexProjectId: project.id,
@@ -1201,6 +1205,7 @@ export function App() {
         issueCount: project.issueCount,
         inCodex: false,
         persisted: true,
+        workspacePath: deviceWorkspacePaths[project.id] ?? project.workspacePath ?? projectCodexIdentities[project.id]?.workspacePath ?? null,
         codexIdentity: projectCodexIdentities[project.id] ?? null,
       });
     }
@@ -1213,10 +1218,15 @@ export function App() {
       ...sortedChoices.filter((project) => project.issueCount > 0),
       ...sortedChoices.filter((project) => project.issueCount === 0),
     ];
-  }, [hostContext?.projects, projectCodexIdentities, projects, recentProjectIds, text]);
+  }, [deviceWorkspacePaths, hostContext?.projects, projectCodexIdentities, projects, recentProjectIds, text]);
   const projectMenuCandidates = projectChoices.filter(
     (project) => project.id !== GLOBAL_PROJECT_ID || project.issueCount > 0,
   );
+  const duplicateProjectNames = new Set(projectMenuCandidates
+    .filter((project, index, choices) => choices.some((other, otherIndex) => (
+      otherIndex !== index && other.name === project.name
+    )))
+    .map((project) => project.name));
   const projectMenuNeedle = projectMenuSearch.trim().toLocaleLowerCase();
   const projectMenuChoices = projectMenuNeedle
     ? projectMenuCandidates.filter((project) => project.name.toLocaleLowerCase().includes(projectMenuNeedle))
@@ -2091,9 +2101,10 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    setTasks([]);
+    setArchivedTasks([]);
+    setTasksLoadError(null);
     if (!taskScopeProjectId) {
-      setTasks([]);
-      setArchivedTasks([]);
       setHasLoadedTasks(false);
       return;
     }
@@ -2386,6 +2397,10 @@ export function App() {
   const otherTasksColumnCount = mainColumnCount + 1;
   const otherTasksWidth = `clamp(300px, calc(${100 / otherTasksColumnCount}% - ${(36 + (mainColumnCount * 24)) / otherTasksColumnCount}px), 400px)`;
   const otherTaskTabs = boardDisplaySettings.sidebarStatuses;
+  const archiveIsVisible = boardView === "issues" && (
+    mainBoardItems.includes("archived")
+    || (otherTasksVisible && otherTasksTab === "archived" && otherTaskTabs.includes("archived"))
+  );
   const otherTaskTabsKey = otherTaskTabs.join(",");
   const otherTasksAvailable = otherTaskTabs.length > 0;
 
@@ -3478,6 +3493,9 @@ export function App() {
                   aria-label={text("切换项目", "Switch project")}
                   aria-haspopup="menu"
                   aria-expanded={projectMenuOpen}
+                  title={selectedProject
+                    ? [headerProjectName, selectedCodexProjectIdentity?.workspacePath ?? deviceWorkspacePaths[selectedProject.id] ?? selectedProject.workspacePath, selectedProject.id].filter(Boolean).join(" · ")
+                    : headerProjectName}
                   onClick={() => {
                     setProjectContextMenu(null);
                     setProjectMenuSearch("");
@@ -3543,6 +3561,7 @@ export function App() {
                             type="button"
                             role="menuitemradio"
                             aria-checked={project.id === selectedProjectId}
+                            title={[project.name, project.workspacePath, project.id].filter(Boolean).join(" · ")}
                             disabled={openingProjectId !== null}
                             onContextMenu={project.id.startsWith("temp-") ? (event) => {
                               event.preventDefault();
@@ -3558,7 +3577,12 @@ export function App() {
                             }}
                           >
                             <TaskboardIcon className="project-avatar" name="projectFolder" />
-                            <span>{project.name}</span>
+                            <span className="project-menu-copy">
+                              <span>{project.name}</span>
+                              {duplicateProjectNames.has(project.name) && (
+                                <small>{[project.workspacePath, project.id].filter(Boolean).join(" · ")}</small>
+                              )}
+                            </span>
                             {project.id === selectedProjectId && <span className="project-menu-check" aria-hidden="true"><LinearIcon name="check" /></span>}
                           </button>
                         </Fragment>
@@ -3843,18 +3867,46 @@ export function App() {
             onError={setActionError}
           />
         ) : boardView !== "readme"
+          && loadError
+          && tasks.length === 0 ? (
+          <div className="page-empty">
+            <h2>{text("项目议题加载失败", "Unable to load project issues")}</h2>
+            <p>{text("请使用上方的重试按钮重新读取项目数据。", "Use Try again above to reload project data.")}</p>
+          </div>
+        ) : boardView !== "readme"
           && hasLoadedTasks
           && tasks.length === 0
           && workspaceParentId === null
           && selectedProject
-          && aiImportReadyProjectId === selectedProject.id ? (
+          && !hasActiveTaskFilters
+          && (archivedTasks.length === 0 || !archiveIsVisible) ? (
           <div className="page-empty">
-            <h2>{text("当前项目还没有任务", "This project has no issues yet")}</h2>
-            <p>{text(
+            <h2>{archivedTasks.length > 0
+              ? text("当前项目没有活动议题", "No active issues in this project")
+              : text("当前项目还没有任务", "This project has no issues yet")}</h2>
+            <p>{archivedTasks.length > 0 ? mainBoardItems.includes("archived") || otherTaskTabs.includes("archived") ? text(
+              `当前项目有 ${archivedTasks.length} 个已归档议题，可在归档列表中查看。`,
+              `This project has ${archivedTasks.length} archived issue${archivedTasks.length === 1 ? "" : "s"}. View them in the archive.`,
+            ) : text(
+              `当前项目有 ${archivedTasks.length} 个已归档议题，可在显示设置中显示归档列。`,
+              `This project has ${archivedTasks.length} archived issue${archivedTasks.length === 1 ? "" : "s"}. Reveal the archive column in display settings.`,
+            ) : aiImportReadyProjectId === selectedProject.id ? text(
               "让 Codex 检查当前项目目录对应的对话，并整理任务状态。",
               "Ask Codex to inspect conversations for this project directory and organize their task status.",
-            )}</p>
+            ) : text("可以添加议题，记录当前项目的任务。", "Add an issue to record a task for this project.")}</p>
             <div className="page-empty-actions">
+              {archivedTasks.length > 0 && (mainBoardItems.includes("archived") || otherTaskTabs.includes("archived")) && (
+                <button className="button secondary" type="button" onClick={() => {
+                  selectBoardView("issues");
+                  if (otherTaskTabs.includes("archived")) {
+                    setOtherTasksTab("archived");
+                    setOtherTasksOpen(true);
+                  }
+                }}>
+                  {text("查看已归档议题", "View archived issues")}
+                </button>
+              )}
+              {archivedTasks.length === 0 && aiImportReadyProjectId === selectedProject.id && (
               <button
                 className="button primary"
                 type="button"
@@ -3873,6 +3925,8 @@ export function App() {
               >
                 {text("导入当前项目任务状态", "Import current project task status")}
               </button>
+              )}
+              {!isJiraProject && (
               <button
                 className="button secondary"
                 type="button"
@@ -3880,6 +3934,7 @@ export function App() {
               >
                 {text("添加议题", "Add issue")}
               </button>
+              )}
             </div>
           </div>
         ) : boardView === "readme" && selectedProject ? (
