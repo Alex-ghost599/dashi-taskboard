@@ -98,7 +98,9 @@ import {
   postEmbeddedHostMessage,
   setEmbeddedFrameChallenge,
 } from "./embeddedHost.mjs";
-import { buildIssueUrl, readIssueIdentifier } from "./issueRoute";
+import { buildIssueUrl, readIssueIdentifier, readWorkspaceParentId } from "./issueRoute";
+import { resolveIssueWorkspace } from "./issueWorkspace.mjs";
+import { IssueWorkspaceNavigation } from "./components/IssueWorkspaceNavigation";
 import {
   getTaskboardI18n,
   resolveTaskboardLanguage,
@@ -789,11 +791,16 @@ export function App() {
   const [pendingArchivedTaskDelete, setPendingArchivedTaskDelete] = useState<Task | null>(null);
   const [deletingArchivedTaskId, setDeletingArchivedTaskId] = useState<string | null>(null);
   const [editor, setEditor] = useState<EditorState | null>(null);
-  const [newTaskDraft, setNewTaskDraft] = useState<{
-    projectId: string;
+  const [workspaceParentId, setWorkspaceParentId] = useState<string | null>(
+    () => readWorkspaceParentId(window.location.search),
+  );
+  // Drafts stay in their original project/workspace when navigating elsewhere.
+  const workspaceDraftKey = JSON.stringify([selectedProjectId, workspaceParentId, actorKey(hostContext?.user ?? DEFAULT_USER_ACTOR)]);
+  const [newTaskDrafts, setNewTaskDrafts] = useState<Record<string, {
     targetProjectId: string | null;
     draft: NewTaskEditorDraft;
-  } | null>(null);
+  }>>({});
+  const newTaskDraft = newTaskDrafts[workspaceDraftKey] ?? null;
   const [detailTaskIdentifier, setDetailTaskIdentifier] = useState<string | null>(
     () => readIssueIdentifier(window.location.search),
   );
@@ -847,6 +854,7 @@ export function App() {
   const boardScrollRef = useRef<HTMLDivElement>(null);
   const boardColumnScrollRefs = useRef<Partial<Record<TaskStatus, HTMLDivElement | null>>>({});
   const detailSourceProjectIdRef = useRef<string | null>(null);
+  const detailSourceWorkspaceParentIdRef = useRef<string | null>(null);
   const pendingDetailSourceScrollRef = useRef<DetailSourceScroll | null>(null);
   const taskScopeProjectId = detailSourceProjectIdRef.current ?? selectedProjectId;
   const taskScopeProjectIdRef = useRef(taskScopeProjectId);
@@ -1138,6 +1146,12 @@ export function App() {
     };
   }, [automationProjectContext, hostContext, manageTaskboardSkillPath, selectedProject]);
   const referenceTasks = useMemo(() => [...tasks, ...archivedTasks], [archivedTasks, tasks]);
+  const issueWorkspace = useMemo(() => resolveIssueWorkspace(
+    referenceTasks, isAllProjects ? null : selectedProjectId, workspaceParentId,
+  ), [referenceTasks, isAllProjects, selectedProjectId, workspaceParentId]);
+  const workspaceTaskIds = useMemo(() => new Set(issueWorkspace.taskIds), [issueWorkspace]);
+  const workspaceTasks = useMemo(() => tasks.filter((task) => workspaceTaskIds.has(task.id)), [tasks, workspaceTaskIds]);
+  const workspaceReadOnly = issueWorkspace.readOnly;
   const detailTask = detailTaskIdentifier
     ? referenceTasks.find((task) => task.identifier === detailTaskIdentifier) ?? null
     : null;
@@ -1221,7 +1235,7 @@ export function App() {
   const hasProjectsWithIssues = projectMenuChoices.some((project) => project.issueCount > 0);
   const editorProjectId = editor?.task?.projectId
     ?? editor?.projectId
-    ?? (newTaskDraft?.projectId === selectedProjectId ? newTaskDraft.targetProjectId : undefined)
+    ?? newTaskDraft?.targetProjectId
     ?? (isAllProjects ? GLOBAL_PROJECT_ID : selectedProjectId);
   const developmentEditorProjectId = isAllProjects && editor ? editorProjectId : null;
   const createTargetProjects = projectChoices.flatMap((choice) => {
@@ -1579,12 +1593,40 @@ export function App() {
     writeProjectAutomation,
   ]);
 
+  function openIssueWorkspace(parentId: string | null) {
+    closeContextMenu();
+    setEditor(null);
+    setDetailTaskIdentifier(null);
+    detailSourceProjectIdRef.current = null;
+    detailSourceWorkspaceParentIdRef.current = null;
+    const targetProjectId = parentId
+      ? referenceTasks.find((task) => task.id === parentId)?.projectId ?? selectedProjectId
+      : selectedProjectId;
+    if (targetProjectId !== selectedProjectId) {
+      setSelectedProjectId(targetProjectId);
+      setBoardView(readProjectBoardView(targetProjectId));
+    }
+    setWorkspaceParentId(parentId);
+    setSearch("");
+    setActionError(null);
+    endTaskDrag();
+    const url = buildIssueUrl(window.location.href, targetProjectId, null, parentId);
+    window.history.pushState(window.history.state, "", url);
+  }
+
   function openTaskDetail(task: Pick<Task, "identifier" | "projectId">) {
+    if (workspaceReadOnly) return;
     const fullTask = tasksRef.current.find((candidate) => candidate.identifier === task.identifier);
     if (fullTask) markTaskRead(fullTask);
     const currentIssue = readIssueIdentifier(window.location.search);
-    if (!currentIssue) detailSourceProjectIdRef.current = selectedProjectId;
-    if (isAllProjects) setSelectedProjectId(task.projectId);
+    if (!currentIssue) {
+      detailSourceProjectIdRef.current = selectedProjectId;
+      detailSourceWorkspaceParentIdRef.current = workspaceParentId;
+    }
+    if (task.projectId !== selectedProjectId) {
+      setWorkspaceParentId(null);
+      setSelectedProjectId(task.projectId);
+    }
     if (boardView === "list" && issueListRef.current) {
       pendingDetailSourceScrollRef.current = {
         projectId: selectedProjectId,
@@ -1620,13 +1662,18 @@ export function App() {
 
   function closeTaskDetail() {
     const sourceProjectId = detailSourceProjectIdRef.current ?? selectedProjectId;
+    const sourceParentId = detailSourceProjectIdRef.current !== null
+      ? detailSourceWorkspaceParentIdRef.current
+      : workspaceParentId;
     detailSourceProjectIdRef.current = null;
+    detailSourceWorkspaceParentIdRef.current = null;
+    setWorkspaceParentId(sourceParentId);
     setDetailTaskIdentifier(null);
     if (sourceProjectId !== selectedProjectId) {
       setSelectedProjectId(sourceProjectId);
       setBoardView(sourceProjectId === ALL_PROJECTS_ID ? "issues" : readProjectBoardView(sourceProjectId));
     }
-    const url = buildIssueUrl(window.location.href, sourceProjectId, null);
+    const url = buildIssueUrl(window.location.href, sourceProjectId, null, sourceParentId);
     window.history.replaceState(window.history.state, "", url);
   }
 
@@ -1653,6 +1700,10 @@ export function App() {
       const url = new URL(window.location.href);
       const routeProjectId = url.searchParams.get("project") ?? GLOBAL_PROJECT_ID;
       const routeIssueIdentifier = readIssueIdentifier(url.search);
+      setWorkspaceParentId(readWorkspaceParentId(url.search));
+      setEditor(null);
+      closeContextMenu();
+      endTaskDrag();
       if (routeIssueIdentifier && boardView === "list" && issueListRef.current) {
         pendingDetailSourceScrollRef.current = {
           projectId: selectedProjectId,
@@ -1676,7 +1727,10 @@ export function App() {
           };
         }
       }
-      if (!routeIssueIdentifier) detailSourceProjectIdRef.current = null;
+      if (!routeIssueIdentifier) {
+        detailSourceProjectIdRef.current = null;
+        detailSourceWorkspaceParentIdRef.current = null;
+      }
       setDetailTaskIdentifier(routeIssueIdentifier);
       if (routeProjectId === selectedProjectId) return;
       setBoardView(routeProjectId === ALL_PROJECTS_ID ? "issues" : readProjectBoardView(routeProjectId));
@@ -2200,6 +2254,7 @@ export function App() {
   }
 
   async function performUndo() {
+    if (workspaceReadOnly) return;
     if (undoInFlightRef.current) return;
     const operation = undoStackRef.current.at(-1);
     if (!operation) return;
@@ -2246,6 +2301,7 @@ export function App() {
         && !event.shiftKey
         && !isTyping
         && !editor
+        && !workspaceReadOnly
       ) {
         event.preventDefault();
         void performUndo();
@@ -2258,6 +2314,7 @@ export function App() {
         && !event.ctrlKey
         && selectedProjectId
         && !isJiraProject
+        && !workspaceReadOnly
       ) {
         event.preventDefault();
         setEditor({ task: null, status: "todo" });
@@ -2278,17 +2335,17 @@ export function App() {
 
     window.addEventListener("keydown", handleShortcut);
     return () => window.removeEventListener("keydown", handleShortcut);
-  }, [boardView, contextMenu, detailTaskId, editor, isJiraProject, projectMenuOpen, selectedProjectId]);
+  }, [boardView, contextMenu, detailTaskId, editor, isJiraProject, projectMenuOpen, selectedProjectId, workspaceReadOnly]);
 
   const filteredTasks = useMemo(() => {
-    return tasks.filter(
+    return workspaceTasks.filter(
       (task) => matchesTaskSearch(task, search, language) && matchesTaskFilters(task, filters),
     );
-  }, [filters, language, search, tasks]);
+  }, [filters, language, search, workspaceTasks]);
 
   const filteredArchivedTasks = useMemo(() => archivedTasks.filter(
-    (task) => matchesTaskSearch(task, search, language) && matchesTaskFilters(task, filters),
-  ), [archivedTasks, filters, language, search]);
+    (task) => workspaceTaskIds.has(task.id) && matchesTaskSearch(task, search, language) && matchesTaskFilters(task, filters),
+  ), [archivedTasks, filters, language, search, workspaceTaskIds]);
 
   const activeFilterCount = taskFilterCount(filters);
   const hasActiveTaskFilters = Boolean(search.trim()) || activeFilterCount > 0;
@@ -2332,7 +2389,7 @@ export function App() {
   const mainBoardItems = boardDisplaySettings.mainStatuses.filter(
     (status) => status !== "blocked"
       || !hasLoadedTasks
-      || tasks.some((task) => task.status === "blocked"),
+      || workspaceTasks.some((task) => task.status === "blocked"),
   );
   const mainColumnCount = Math.max(mainBoardItems.length, 1);
   const mainBoardMinWidth = (mainColumnCount * 300) + ((mainColumnCount - 1) * 24);
@@ -2434,6 +2491,7 @@ export function App() {
     createOptions?: NewTaskCreateOptions,
   ) {
     if (!selectedProjectId || !editor) return;
+    if (workspaceReadOnly) throw new Error(text("该任务工作区只读，无法保存。", "This issue workspace is read-only; cannot save."));
     const targetProjectId = editorProjectId ?? selectedProjectId;
     setActionError(null);
     const creating = editor.task === null;
@@ -2498,6 +2556,7 @@ export function App() {
     let addedParentId: string | null = null;
     const addedRelatedIds: string[] = [];
     let relationWriteFailed = false;
+    let parentWriteFailed = false;
     if (creating && createOptions) {
       const { parentId, relatedIds, subIssueIds } = createOptions.relations;
       try {
@@ -2524,6 +2583,7 @@ export function App() {
         }
       } catch {
         relationWriteFailed = true;
+        parentWriteFailed = Boolean(parentId && !addedParentId);
       }
     }
     relationUpdates.set(saved.id, saved);
@@ -2531,9 +2591,13 @@ export function App() {
       ...current.filter((task) => !relationUpdates.has(task.id)),
       ...relationUpdates.values(),
     ]));
-    if (creating) setNewTaskDraft(null);
+    if (creating) setNewTaskDrafts((current) => {
+      const next = { ...current };
+      delete next[workspaceDraftKey];
+      return next;
+    });
     const failedWrites = [
-      ...(relationWriteFailed ? [{ zh: "关系", en: "relations" }] : []),
+      ...(relationWriteFailed ? [{ zh: parentWriteFailed ? "父任务关系" : "关系", en: parentWriteFailed ? "parent relation" : "relations" }] : []),
       ...(postCreateWriteFailed ? [{ zh: "正文或媒体", en: "description or media" }] : []),
     ];
     if (!creating || !createOptions?.keepOpen || failedWrites.length > 0) setEditor(null);
@@ -2607,7 +2671,7 @@ export function App() {
       return;
     }
 
-    const destination = tasks.filter((candidate) => (
+    const destination = workspaceTasks.filter((candidate) => (
       candidate.projectId === task.projectId
       && candidate.status === status
       && candidate.id !== task.id
@@ -2621,7 +2685,7 @@ export function App() {
     const targetIndex = insertionIndex < 0 ? destination.length : insertionIndex;
     const desiredOrder = [...destination];
     desiredOrder.splice(targetIndex, 0, task);
-    const currentOrder = tasks.filter((candidate) => (
+    const currentOrder = workspaceTasks.filter((candidate) => (
       candidate.projectId === task.projectId && candidate.status === status
     ));
     if (
@@ -3174,16 +3238,19 @@ export function App() {
     setProjectContextMenu(null);
     setProjectMenuOpen(false);
     detailSourceProjectIdRef.current = null;
+    detailSourceWorkspaceParentIdRef.current = null;
     setDetailTaskIdentifier(null);
     setBoardView(projectId === ALL_PROJECTS_ID ? "issues" : readProjectBoardView(projectId));
     if (projectId !== ALL_PROJECTS_ID) rememberProjectOpen(projectId);
     setSelectedProjectId(projectId);
+    setWorkspaceParentId(null);
+    setEditor(null);
     setSearch("");
     setFilters(EMPTY_TASK_FILTERS);
     setActionError(null);
     undoStackRef.current = [];
     setUndoNotice(null);
-    const url = buildIssueUrl(window.location.href, projectId, null);
+    const url = buildIssueUrl(window.location.href, projectId, null, null);
     window.history.replaceState(null, "", url);
   }
 
@@ -3558,7 +3625,7 @@ export function App() {
           <div ref={dragRegionRef} className="workspace-drag-region" aria-hidden="true" />
 
           <div className="header-actions">
-            {selectedProject && (
+            {selectedProject && !workspaceReadOnly && (
               <ProjectAutomationMenu
                 automation={selectedProjectAutomation}
                 models={automationModels}
@@ -3569,7 +3636,7 @@ export function App() {
                 onChange={(options) => void saveProjectAutomation(options)}
               />
             )}
-            {isJiraProject && (
+            {isJiraProject && !workspaceReadOnly && (
               <button
                 className="icon-button"
                 type="button"
@@ -3581,7 +3648,7 @@ export function App() {
                 <RefreshIcon color="currentColor" />
               </button>
             )}
-            {selectedProjectId && !isJiraProject && (
+            {selectedProjectId && !isJiraProject && !workspaceReadOnly && (
               <button
                 className="icon-button header-create-button"
                 type="button"
@@ -3595,7 +3662,18 @@ export function App() {
           </div>
         </header>
 
-        {selectedProjectId && !detailTask && <div className="board-toolbar">
+        {(selectedProject || isAllProjects) && (
+          <IssueWorkspaceNavigation
+            projectName={headerProjectName}
+            workspace={issueWorkspace}
+            tasks={referenceTasks.filter((task) => workspaceTaskIds.has(task.id))}
+            detailTask={detailTask}
+            onNavigate={openIssueWorkspace}
+            onOpenTask={openTaskDetail}
+          />
+        )}
+
+        {selectedProjectId && !detailTask && !workspaceReadOnly && <div className="board-toolbar">
           <div className="view-tabs" aria-label={text("看板视图", "Board views")}>
             <button
               className={`view-tab${boardView === "dashboard" ? " active" : ""}`}
@@ -3745,7 +3823,21 @@ export function App() {
           </div>
         )}
 
-        {detailTask && selectedProject ? (
+        {workspaceReadOnly ? (
+          <section className="issue-workspace-static" aria-label={text("只读任务工作区", "Read-only issue workspace")}>
+            <p>{issueWorkspace.state === "unavailable"
+              ? text("工作区不可用：父任务或父链无法解析。", "Workspace unavailable: the parent or ancestor chain could not be resolved.")
+              : text("父任务链包含已归档任务。当前仅提供导航与静态任务列表；无法建卡、关联、拖拽或编辑。", "Archived ancestor: navigation and a static task list only. Creation, relations, dragging and editing are unavailable.")}</p>
+            <ul className="issue-workspace-static-list">
+              {referenceTasks.filter((task) => workspaceTaskIds.has(task.id)).map((task) => (
+                <li key={task.id}>
+                  <span>{task.identifier}</span><strong>{task.title}</strong>
+                  <span>{taskStatusLabel(language, task.status)}{task.archivedAt ? text(" · 已归档", " · Archived") : ""}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : detailTask && selectedProject ? (
           <TaskDetail
             key={detailTask.id}
             task={detailTask}
@@ -3784,6 +3876,7 @@ export function App() {
         ) : boardView !== "readme"
           && hasLoadedTasks
           && tasks.length === 0
+          && workspaceParentId === null
           && selectedProject
           && !hasActiveTaskFilters
           && (archivedTasks.length === 0 || !archiveIsVisible) ? (
@@ -3860,7 +3953,7 @@ export function App() {
             projectId={selectedProjectId}
             projectCreatedAt={selectedProject?.createdAt ?? null}
             isAllProjects={isAllProjects}
-            tasks={tasks}
+            tasks={workspaceTasks}
             presentations={taskPresentations}
             currentUser={currentUser}
             animateSummary={dashboardSummaryAnimatedProjectId !== selectedProjectId}
@@ -4169,7 +4262,7 @@ export function App() {
         </div>
       )}
 
-      {pendingArchivedTaskDelete && (
+      {pendingArchivedTaskDelete && !workspaceReadOnly && (
         <div
           className="delete-backdrop"
           onPointerDown={(event) => {
@@ -4221,34 +4314,38 @@ export function App() {
         </div>
       )}
 
-      {editor && (
+      {editor && !workspaceReadOnly && (
         <TaskEditor
-          key={editor.task?.id ?? `new-${selectedProjectId}-${editor.status}`}
+          key={editor.task?.id ?? `new-${workspaceDraftKey}-${editor.status}`}
           projectId={editorProjectId}
           projectOptions={!editor.task && isAllProjects ? createTargetProjects : undefined}
           onProjectChange={(projectId) => setEditor((current) => (
             current ? { ...current, projectId } : current
           ))}
           task={editor.task}
-          tasks={tasks.filter((task) => task.projectId === editorProjectId)}
+          tasks={referenceTasks.filter((task) => task.projectId === editorProjectId)}
           referenceTasks={referenceTasks.filter((task) => task.projectId === editorProjectId)}
           initialStatus={editor.status}
-          initialDraft={editor.task || newTaskDraft?.projectId !== selectedProjectId
-            ? null
-            : newTaskDraft.draft}
+          initialDraft={editor.task ? null : newTaskDraft?.draft ?? null}
+          defaultParentId={workspaceParentId}
           labels={projects.find((project) => project.id === editorProjectId)?.labels ?? []}
           currentUser={currentUser}
           developmentScan={developmentScan}
           developmentScanProjectId={developmentScanProjectId}
           developmentScanLoading={developmentScanLoading}
           onCreateLabel={(label) => persistProjectLabel(label, editorProjectId ?? selectedProjectId)}
+          onDraftChange={(draft) => setNewTaskDrafts((current) => ({
+            ...current,
+            [workspaceDraftKey]: { targetProjectId: editorProjectId, draft },
+          }))}
           onCancel={(draft) => {
             if (!editor.task) {
-              setNewTaskDraft(draft ? {
-                projectId: selectedProjectId,
-                targetProjectId: editorProjectId,
-                draft,
-              } : null);
+              setNewTaskDrafts((current) => {
+                const next = { ...current };
+                if (draft) next[workspaceDraftKey] = { targetProjectId: editorProjectId, draft };
+                else delete next[workspaceDraftKey];
+                return next;
+              });
             }
             setEditor(null);
           }}
@@ -4256,7 +4353,7 @@ export function App() {
         />
       )}
 
-      {contextMenu && contextMenuTask && (
+      {contextMenu && contextMenuTask && !workspaceReadOnly && (
         <TaskContextMenu
           task={contextMenuTask}
           position={{ x: contextMenu.x, y: contextMenu.y }}
@@ -4280,7 +4377,7 @@ export function App() {
         />
       )}
 
-      {localAiChatAvailable && !isAllProjects && (
+      {localAiChatAvailable && !isAllProjects && !workspaceReadOnly && (
         <Suspense fallback={null}>
           <AiChat
             available
@@ -4295,7 +4392,7 @@ export function App() {
       )}
 
       <div className="sr-only" role="status" aria-live="polite">{announcement}</div>
-      {undoNotice && (
+      {undoNotice && !workspaceReadOnly && (
         <div
           className="toast undo-toast"
           role="status"
