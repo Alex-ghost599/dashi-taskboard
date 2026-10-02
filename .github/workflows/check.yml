@@ -212,6 +212,8 @@ jobs:
       - run: npm run check
       - name: Verify daily CDP launch refusal boundaries
         run: python3 test/personal-cdp-open_test.py
+      - name: Verify personal dual-database backup and isolated restore
+        run: python3 test/personal-backup_test.py
       - name: Record tested PR merge tree
         if: github.event_name == 'pull_request'
         env:

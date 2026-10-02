@@ -891,6 +891,19 @@ kbd {
   height: 16px;
 }
 
+.project-menu-copy > span,
+.project-menu-copy > small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-menu-copy > small {
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
 .project-menu-divider {
   height: var(--border-hairline);
   margin: 4px 3px;
