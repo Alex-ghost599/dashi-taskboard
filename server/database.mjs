@@ -824,6 +824,14 @@ export class TaskboardDatabase {
         ON tasks(project_id, archived_at, status, sort_order, created_at)
     `);
     this.database.exec(`
+      CREATE TABLE IF NOT EXISTS conversation_import_sources (
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        source_thread_id TEXT NOT NULL,
+        task_id TEXT NOT NULL UNIQUE REFERENCES tasks(id) ON DELETE CASCADE,
+        evidence_json TEXT NOT NULL,
+        imported_at TEXT NOT NULL,
+        PRIMARY KEY (project_id, source_thread_id)
+      );
       CREATE TABLE IF NOT EXISTS task_relations (
         relation_type TEXT NOT NULL CHECK (relation_type IN ('parent', 'blocks', 'related')),
         source_task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
@@ -1980,8 +1988,49 @@ export class TaskboardDatabase {
   }
 
   createTask(input) {
+    return this.#createTask(input);
+  }
+
+  listConversationImports(projectId) {
+    return this.database.prepare(`SELECT task_id, evidence_json, imported_at
+      FROM conversation_import_sources WHERE project_id = ? ORDER BY source_thread_id`).all(projectId)
+      .map(row=>({taskId:row.task_id,evidence:JSON.parse(row.evidence_json),importedAt:row.imported_at}));
+  }
+
+  createConversationImportTask(input, evidence) {
+    const allowedInput=new Set(['projectId','title','description','actor']);
+    const allowedEvidence=new Set(['projectId','threadId','workspacePath','scope','path','headerSha256','timestamp','inputSha256','byteLength']);
+    const invalid=()=>{throw new ApiError(400,'INVALID_CONVERSATION_IMPORT','Invalid reviewed conversation import');};
+    if(!input||!evidence||Object.keys(input).some(key=>!allowedInput.has(key))
+      ||Object.keys(evidence).some(key=>!allowedEvidence.has(key))||evidence.projectId!==input.projectId
+      ||typeof input.title!=='string'||!input.title.trim()||input.title.length>240
+      ||typeof input.description!=='string'||input.description.length>100_000||!input.actor
+      ||!['sessions','archived_sessions'].includes(evidence.scope)
+      ||typeof evidence.path!=='string'||evidence.path.length>1024||!evidence.path
+      ||path.isAbsolute(evidence.path)||evidence.path.split(/[\\/]/).includes('..')
+      ||!/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(evidence.threadId??'')
+      ||!/^[a-f0-9]{64}$/i.test(evidence.headerSha256??'')||!/^[a-f0-9]{64}$/i.test(evidence.inputSha256??'')
+      ||(evidence.timestamp!==undefined&&evidence.timestamp!==null&&(typeof evidence.timestamp!=='string'||evidence.timestamp.length>64))
+      ||!Number.isInteger(evidence.byteLength)||evidence.byteLength<1||evidence.byteLength>2*1024*1024) invalid();
+    const project=this.getProject(input.projectId);
+    if(input.projectId===JIRA_PROJECT_ID||!project?.workspacePath||typeof evidence.workspacePath!=='string'
+      ||path.resolve(project.workspacePath)!==evidence.workspacePath) invalid();
+    return this.#createTask({...input,status:'backlog',priority:'none',labels:[],threadId:null,threadBinding:null,
+      assignee:input.actor,developmentContext:null,startDate:null,dueDate:null,recurrence:null},evidence);
+  }
+
+  #createTask(input, conversationSource=null) {
     this.database.exec("BEGIN IMMEDIATE");
     try {
+      if(conversationSource) {
+        const existing=this.database.prepare(`SELECT task_id FROM conversation_import_sources
+          WHERE project_id = ? AND source_thread_id = ?`).get(input.projectId,conversationSource.threadId);
+        if(existing) {
+          const task=this.getTask(existing.task_id);
+          this.database.exec('COMMIT');
+          return {task,alreadyImported:true};
+        }
+      }
       const project = this.database.prepare(`
         SELECT
           projects.id,
@@ -2070,8 +2119,14 @@ export class TaskboardDatabase {
         timestamp,
         timestamp,
       );
+      if(conversationSource) {
+        this.database.prepare(`INSERT INTO conversation_import_sources
+          (project_id,source_thread_id,task_id,evidence_json,imported_at) VALUES (?,?,?,?,?)`)
+          .run(input.projectId,conversationSource.threadId,id,JSON.stringify(conversationSource),timestamp);
+      }
       this.database.exec("COMMIT");
-      return this.getTask(id);
+      const task=this.getTask(id);
+      return conversationSource?{task,alreadyImported:false}:task;
     } catch (error) {
       this.database.exec("ROLLBACK");
       throw error;
@@ -2090,6 +2145,10 @@ export class TaskboardDatabase {
     }
     const projectChanged = Boolean(targetProject && targetProject.id !== current.projectId);
     if (projectChanged) {
+      if(this.database.prepare('SELECT 1 FROM conversation_import_sources WHERE task_id = ?').get(current.id)) {
+        throw new ApiError(409,'CONVERSATION_IMPORT_PROJECT_MOVE_UNAVAILABLE',
+          '会话导入卡保留原项目来源，暂不支持跨项目移动');
+      }
       const relation = this.database.prepare(`
         SELECT 1
         FROM task_relations
